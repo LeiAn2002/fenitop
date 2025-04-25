@@ -106,3 +106,29 @@ class Heaviside():
         for vector in vectors:
             if vector is not None:
                 vector.array *= self.drho
+
+
+class Normalization():
+    def __init__(self, ksi_phys_field_list):
+        self.ksi_phys_field_list = ksi_phys_field_list
+
+    def forward(self):
+        self.ksi_i_old = []
+        for i in range(3):
+            self.ksi_i_old.append(self.ksi_phys_field_list[i].vector.array.copy())
+        self.sumksi = sum(self.ksi_i_old)
+        self.dksi = 1 / sum(self.ksi_i_old)
+        for i in range(3):
+            self.ksi_phys_field_list[i].vector.array[:] = (
+                self.ksi_phys_field_list[i].vector.array * self.dksi)
+        for i in range(3):
+            self.ksi_phys_field_list[i].x.scatter_forward()
+
+    def backward(self, vector, which_ksi, number):
+        if number == which_ksi:
+            if vector is not None:
+                vector.array = vector.array * (sum(self.ksi_i_old[:number] + self.ksi_i_old[number+1:])*1/(self.sumksi**2))
+
+        else:
+            if vector is not None:
+                vector.array = vector.array * (-1*self.ksi_i_old[number]*1/(self.sumksi**2))

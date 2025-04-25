@@ -36,8 +36,8 @@ else:
 fem = {  # FEA parameters
     "mesh": mesh,
     "mesh_serial": mesh_serial,
-    "young's modulus": 100,
-    "poisson's ratio": 0.25,
+    "young's modulus": 2.41,
+    "poisson's ratio": 0.35,
     "disp_bc": lambda x: np.less_equal(x[0]**2+x[1]**2, (0.8+1e-4)**2),
     "traction_bcs": [[(0, -1.0),
                       lambda x: (np.greater_equal(x[0]**2+x[1]**2, (4.0-1e-4)**2)
@@ -53,7 +53,7 @@ fem = {  # FEA parameters
 }
 
 opt = {  # Topology optimization parameters
-    "max_iter": 400,
+    "max_iter": 300,
     "opt_tol": 1e-5,
     "vol_frac": 0.5,
     "solid_zone": lambda x: np.full(x.shape[1], False),
@@ -66,6 +66,7 @@ opt = {  # Topology optimization parameters
     "use_oc": True,
     "move": 0.02,
     "opt_compliance": True,
+    "block_types": 3,
 }
 
 if __name__ == "__main__":

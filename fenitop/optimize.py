@@ -42,7 +42,7 @@ def optimality_criteria(rho, rho_min, rho_max, V, dCdrho, dVdrho, move=0.05):
 
 
 def mma_optimizer(m, n, opt_iter, xval, xmin, xmax, xold1, xold2, df0dx, fval,
-                  dfdx, low, upp, a0=1, a=None, c=None, d=None, move=0.05,
+                  dfdx, low, upp, a0=1, a=None, c=None, d=None, move=0.5,
                   asyinit=0.5, asydecr=0.7, asyincr=1.2,
                   low_bnd=0.002, up_bnd=1.0, albefa=0.1, feps=1e-6):
     """Solution update scheme with the method of moving asymptotes (MMA).

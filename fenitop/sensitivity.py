@@ -48,7 +48,9 @@ class Sensitivity():
         self.opt_compliance = opt["opt_compliance"]
         if not self.opt_compliance:
             self.dfdrho_form = form(ufl.adjoint(ufl.derivative(opt["f_int"], rho_phys)))
+
             self.dfdrho_mat = create_matrix(self.dfdrho_form)
+
             self.problem, self.l_vec = problem, opt["l_vec"]
             self.u_field, self.lambda_field = u_field, lambda_field
             self.dUdrho_vec = rho_phys.vector.copy()
@@ -69,6 +71,7 @@ class Sensitivity():
             loc.set(0)
         assemble_vector(self.dCdrho_vec, self.dCdrho_form)
         self.dCdrho_vec.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+        
         actual_volume = self.comm.allreduce(assemble_scalar(self.V_form), op=MPI.SUM)
         V_value = actual_volume / self.total_volume
         self.dVdrho_vec_copy = self.dVdrho_vec.copy()

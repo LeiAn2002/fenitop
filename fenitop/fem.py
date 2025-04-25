@@ -22,10 +22,12 @@ import numpy as np
 import ufl
 from dolfinx.mesh import locate_entities_boundary, meshtags
 from dolfinx.fem import (VectorFunctionSpace, FunctionSpace, Function, Constant,
-                         dirichletbc, locate_dofs_topological)
-
+                         dirichletbc, locate_dofs_topological, Expression, assemble_scalar, form)
 from fenitop.utility import create_mechanism_vectors
 from fenitop.utility import LinearProblem
+from fenitop.NN import NeuralNetwork
+from petsc4py import PETSc
+import torch
 
 
 def form_fem(fem, opt):
@@ -35,17 +37,47 @@ def form_fem(fem, opt):
     V = VectorFunctionSpace(mesh, ("CG", 1))
     S0 = FunctionSpace(mesh, ("DG", 0))
     S = FunctionSpace(mesh, ("CG", 1))
+    block_types = opt["block_types"]
     u, v = ufl.TrialFunction(V), ufl.TestFunction(V)
     u_field = Function(V)  # Displacement field
     lambda_field = Function(V)  # Adjoint variable field
     rho_field = Function(S0)  # Density field
     rho_phys_field = Function(S)  # Physical density field
+    ksi_field_list = []  # Frequency hints fields list
+    ksi_phys_field_list = []  # Physical frequency hints field list
+    c_field_list = []  # Material modulus field list
+    local_vf_field = Function(S0)
+    local_vf_phys_field = Function(S)
 
-    # Material interpolation
-    E0, nu = fem["young's modulus"], fem["poisson's ratio"]
+    for i in range(block_types):
+        ksi_field_list.append(Function(S0))
+        ksi_phys_field_list.append(Function(S))
+
+    for i in range(6):
+        c_field_list.append(Function(S))
+
     p, eps = opt["penalty"], opt["epsilon"]
-    E = (eps + (1-eps)*rho_phys_field**p) * E0
-    _lambda, mu = E*nu/(1+nu)/(1-2*nu), E/(2*(1+nu))  # Lame constants
+    c_list = []
+    for i in range(6):
+        c_list.append((eps + (1-eps)*rho_phys_field**p)*c_field_list[i])
+
+    D_matrix = ufl.as_matrix([
+        [c_list[0], c_list[1], c_list[2]],
+        [c_list[1], c_list[3], c_list[4]],
+        [c_list[2], c_list[4], c_list[5]]
+    ])
+
+    S_matrix = ufl.inv(D_matrix)
+
+    S11 = S_matrix[0, 0]
+    S12 = S_matrix[0, 1]
+    S22 = S_matrix[1, 1]
+
+    E_field = 0.5*(1/S11+1/S22)
+    nu = -0.5*(S12/S11+S12/S22)
+
+    p, eps = opt["penalty"], opt["epsilon"]
+    _lambda, mu = E_field*nu/(1+nu)/(1-2*nu), E_field/(2*(1+nu))
 
     # Kinematics
     def epsilon(u):
@@ -89,6 +121,7 @@ def form_fem(fem, opt):
     else:
         spring_vec, opt["l_vec"] = create_mechanism_vectors(
             V, opt["in_spring"], opt["out_spring"])
+        
     linear_problem = LinearProblem(u_field, lambda_field, lhs, rhs, opt["l_vec"],
                                    spring_vec, [bc], fem["petsc_options"])
 
@@ -98,4 +131,4 @@ def form_fem(fem, opt):
     opt["volume"] = rho_phys_field*dx
     opt["total_volume"] = Constant(mesh, 1.0)*dx
 
-    return linear_problem, u_field, lambda_field, rho_field, rho_phys_field
+    return linear_problem, u_field, lambda_field, rho_field, rho_phys_field, ksi_field_list, ksi_phys_field_list, c_field_list, local_vf_field, local_vf_phys_field

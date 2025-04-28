@@ -25,11 +25,11 @@ from dolfinx.mesh import create_rectangle, CellType
 from fenitop.topopt import topopt
 
 
-mesh = create_rectangle(MPI.COMM_WORLD, [[0, 0], [60, 20]],
-                        [60, 20], CellType.quadrilateral)
+mesh = create_rectangle(MPI.COMM_WORLD, [[0, 0], [90, 30]],
+                        [90, 30], CellType.quadrilateral)
 if MPI.COMM_WORLD.rank == 0:
-    mesh_serial = create_rectangle(MPI.COMM_SELF, [[0, 0], [60, 20]],
-                                   [60, 20], CellType.quadrilateral)
+    mesh_serial = create_rectangle(MPI.COMM_SELF, [[0, 0], [90, 30]],
+                                   [90, 30], CellType.quadrilateral)
 else:
     mesh_serial = None
 
@@ -39,7 +39,7 @@ fem = {  # FEM parameters
     "young's modulus": 2.41,
     "poisson's ratio": 0.35,
     "disp_bc": lambda x: np.isclose(x[0], 0),
-    "traction_bcs": [[(0, -0.2),
+    "traction_bcs": [[(0, -1),
                       lambda x: (np.isclose(x[0], 60) & np.greater(x[1], 8) & np.less(x[1], 12))]],
     "body_force": (0, 0),
     "quadrature_degree": 2,

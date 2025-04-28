@@ -217,7 +217,7 @@ def topopt(fem, opt):
             zero_array = np.zeros_like(dVdrho)
             dVdtheta = np.concatenate((dVdrho, np.tile(zero_array, block_types), dVdvf))
             dgdtheta = np.vstack([dVdtheta])
-            dgdvf = dVdvf
+            dgdvf = np.vstack([dVdvf])
             dJdtheta = np.concatenate([dCdrho] + dCdksi_list + [dCdvf])
 
         else:

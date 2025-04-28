@@ -75,7 +75,7 @@ def sensitivity_check(
         linear_problem.solve_fem()
 
         # Compute function values
-        [C_value, V_value, U_value], sensitivities = sens_problem.evaluate()
+        [C_value, V_value, U_value], sensitivities, dVdvf = sens_problem.evaluate()
         
         if opt["opt_compliance"]:
             J, g_vec = C_value, np.array([V_value-opt["vol_frac"]])

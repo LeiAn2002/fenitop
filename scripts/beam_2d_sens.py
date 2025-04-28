@@ -64,6 +64,7 @@ opt = {  # Topology optimization parameters
     "move": 0.02,
     "opt_compliance": True,
     "block_types": 3,
+    "max_vf": 0.7,
 }
 
 if __name__ == "__main__":

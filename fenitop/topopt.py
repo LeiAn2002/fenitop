@@ -49,7 +49,7 @@ def topopt(fem, opt):
     heaviside_rho = Heaviside(rho_phys_field)
 
     # 注意，这里因为我犯懒，所以dVdvf写在了Sensitivity里，而dCdvf和dUdvf写在了Sensitivity_ksi里
-    sens_problem = Sensitivity(comm, opt, linear_problem, u_field, lambda_field, rho_phys_field)
+    sens_problem = Sensitivity(comm, opt, linear_problem, u_field, lambda_field, rho_phys_field, local_vf_phys_field)
     sens_problem_ksi_and_vf = Sensitivity_ksi(opt, linear_problem, u_field, lambda_field, ksi_phys_field_list, c_field_list, local_vf_phys_field)
     S_comm = Communicator(rho_phys_field.function_space, fem["mesh_serial"])
     c_update = FieldUpdater(opt, ksi_phys_field_list, c_field_list, local_vf_phys_field)  # if parallel, maybe need to use comm
@@ -94,6 +94,8 @@ def topopt(fem, opt):
     ksi_ini = np.full(num_elems, 1/3)
     for i in range(block_types):
         ksi_field_list[i].vector.array[:] = ksi_ini
+    vf_ini = np.full(num_elems, 0.5)
+    local_vf_field.vector.array[:] = vf_ini
     rho_min, rho_max = np.zeros(num_elems), np.ones(num_elems)
     ksi_min, ksi_max = 0.1*np.ones(num_elems), 0.9*np.ones(num_elems)
     local_vf_min, local_vf_max = 0.2*np.ones(num_elems), 0.7*np.ones(num_elems)
@@ -135,11 +137,15 @@ def topopt(fem, opt):
         linear_problem.solve_fem()
 
         # Compute function values and sensitivities
-        [C_value, V_value, U_value], sensitivities = sens_problem.evaluate()
+        [C_value, V_value, U_value], sensitivities, dVdvf_vec = sens_problem.evaluate()
        
         heaviside_rho.backward(sensitivities)
 
         [dCdrho, dVdrho, dUdrho] = density_filter_rho.backward(sensitivities)
+        # print(max(np.array(dVdvf_vec)))
+
+        dVdvf = density_filter_vf.backward([dVdvf_vec])[0]
+        # print(max(np.array(dVdvf)))
 
         sensitivities_ksi_and_vf, dCdksi_vector_ksi_and_vf = sens_problem_ksi_and_vf.evaluate()
 
@@ -209,19 +215,19 @@ def topopt(fem, opt):
             g_vec = np.array([V_value-opt["vol_frac"]])
             dJdrho, dgdrho = dCdrho, np.vstack([dVdrho])
             zero_array = np.zeros_like(dVdrho)
-            dVdtheta = np.concatenate((dVdrho, np.tile(zero_array, block_types+1)))
+            dVdtheta = np.concatenate((dVdrho, np.tile(zero_array, block_types), dVdvf))
             dgdtheta = np.vstack([dVdtheta])
-            dgdvf = np.vstack([zero_array])
+            dgdvf = dVdvf
             dJdtheta = np.concatenate([dCdrho] + dCdksi_list + [dCdvf])
 
         else:
             g_vec = np.array([V_value-opt["vol_frac"], C_value-opt["compliance_bound"]])
             dCdtheta = np.concatenate([dCdrho] + dCdksi_list + [dCdvf])
             zero_array = np.zeros_like(dVdrho)
-            dVdtheta = np.concatenate((dVdrho, np.tile(zero_array, block_types+1)))
+            dVdtheta = np.concatenate((dVdrho, np.tile(zero_array, block_types), dVdvf))
             # dgdrho = np.vstack([dVdrho, dCdrho])
             # dgdksi_1 = np.vstack([zero_array, dCdksi_list[0]])
-            dgdvf = np.vstack([zero_array, dCdvf])
+            dgdvf = np.vstack([dVdvf, dCdvf])
             dJdrho, dgdtheta = dUdrho, np.vstack([dVdtheta, dCdtheta])
             dJdtheta = np.concatenate([dJdrho] + dUdksi_list + [dUdvf])
 

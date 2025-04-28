@@ -75,6 +75,7 @@ opt = {  # Topology optimization parameters
     "out_spring": [out_locator, "x", 0.2],
     "compliance_bound": 0.5,
     "block_types": 3,
+    "max_vf": 0.7,
 }
 
 if __name__ == "__main__":

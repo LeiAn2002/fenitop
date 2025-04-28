@@ -38,6 +38,7 @@ def form_fem(fem, opt):
     S0 = FunctionSpace(mesh, ("DG", 0))
     S = FunctionSpace(mesh, ("CG", 1))
     block_types = opt["block_types"]
+    max_vf = opt["max_vf"]
     u, v = ufl.TrialFunction(V), ufl.TestFunction(V)
     u_field = Function(V)  # Displacement field
     lambda_field = Function(V)  # Adjoint variable field
@@ -128,7 +129,7 @@ def form_fem(fem, opt):
     # Define optimization-related variables
     opt["f_int"] = ufl.inner(sigma(u_field), epsilon(v))*dx
     opt["compliance"] = ufl.inner(sigma(u_field), epsilon(u_field))*dx
-    opt["volume"] = rho_phys_field*dx
-    opt["total_volume"] = Constant(mesh, 1.0)*dx
+    opt["volume"] = rho_phys_field * local_vf_phys_field * dx
+    opt["total_volume"] = Constant(mesh, 1.0 * max_vf) * dx
 
     return linear_problem, u_field, lambda_field, rho_field, rho_phys_field, ksi_field_list, ksi_phys_field_list, c_field_list, local_vf_field, local_vf_phys_field

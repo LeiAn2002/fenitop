@@ -26,7 +26,7 @@ from petsc4py import PETSc
 
 
 class Sensitivity():
-    def __init__(self, comm, opt, problem, u_field, lambda_field, rho_phys):
+    def __init__(self, comm, opt, problem, u_field, lambda_field, rho_phys, local_vf_phys_field):
         # Compliance
         if opt["opt_compliance"]:
             self.C_form = form(opt["compliance"])
@@ -34,15 +34,16 @@ class Sensitivity():
         self.dCdrho_vec = create_vector(self.dCdrho_form)
 
         # Volume
+        # print(max(rho_phys.vector.array))
         self.comm = comm
         self.total_volume = comm.allreduce(
             assemble_scalar(form(opt["total_volume"])), op=MPI.SUM)
         self.V_form = form(opt["volume"])
-        dVdrho_form = form(ufl.derivative(opt["volume"], rho_phys))
-        self.dVdrho_vec = create_vector(dVdrho_form)
-        assemble_vector(self.dVdrho_vec, dVdrho_form)
-        self.dVdrho_vec.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-        self.dVdrho_vec /= self.total_volume
+        self.dVdrho_form = form(ufl.derivative(opt["volume"], rho_phys))
+        self.dVdrho_vec = create_vector(self.dVdrho_form)
+
+        self.dVdvf_form = form(ufl.derivative(opt["volume"], local_vf_phys_field))
+        self.dVdvf_vec = create_vector(self.dVdvf_form)
 
         # Displacement
         self.opt_compliance = opt["opt_compliance"]
@@ -74,7 +75,14 @@ class Sensitivity():
         
         actual_volume = self.comm.allreduce(assemble_scalar(self.V_form), op=MPI.SUM)
         V_value = actual_volume / self.total_volume
-        self.dVdrho_vec_copy = self.dVdrho_vec.copy()
+
+        assemble_vector(self.dVdrho_vec, self.dVdrho_form)
+        self.dVdrho_vec.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+        self.dVdrho_vec /= self.total_volume
+
+        assemble_vector(self.dVdvf_vec, self.dVdvf_form)
+        self.dVdvf_vec.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+        self.dVdvf_vec /= self.total_volume
 
         # Displacement
         if not self.opt_compliance:
@@ -88,5 +96,5 @@ class Sensitivity():
             U_value, self.dUdrho_vec = 0, None
 
         func_values = [C_value, V_value, U_value]
-        sensitivities = [self.dCdrho_vec, self.dVdrho_vec_copy, self.dUdrho_vec]
-        return func_values, sensitivities
+        sensitivities = [self.dCdrho_vec, self.dVdrho_vec, self.dUdrho_vec]
+        return func_values, sensitivities, self.dVdvf_vec

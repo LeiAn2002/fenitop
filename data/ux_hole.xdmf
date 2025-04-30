@@ -4,18 +4,18 @@
   <Domain>
     <Grid Name="mesh" GridType="Uniform">
       <Topology TopologyType="Quadrilateral" NumberOfElements="2500" NodesPerElement="4">
-        <DataItem Dimensions="2500 4" NumberType="Int" Format="HDF">ksi_field_1.h5:/Mesh/mesh/topology</DataItem>
+        <DataItem Dimensions="2500 4" NumberType="Int" Format="HDF">ux_hole.h5:/Mesh/mesh/topology</DataItem>
       </Topology>
       <Geometry GeometryType="XY">
-        <DataItem Dimensions="2601 2" Format="HDF">ksi_field_1.h5:/Mesh/mesh/geometry</DataItem>
+        <DataItem Dimensions="2601 2" Format="HDF">ux_hole.h5:/Mesh/mesh/geometry</DataItem>
       </Geometry>
     </Grid>
-    <Grid Name="f" GridType="Collection" CollectionType="Temporal">
-      <Grid Name="f" GridType="Uniform">
+    <Grid Name="ux" GridType="Collection" CollectionType="Temporal">
+      <Grid Name="ux" GridType="Uniform">
         <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
         <Time Value="0" />
-        <Attribute Name="f" AttributeType="Scalar" Center="Node">
-          <DataItem Dimensions="2601 1" Format="HDF">ksi_field_1.h5:/Function/f/0</DataItem>
+        <Attribute Name="ux" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="2601 1" Format="HDF">ux_hole.h5:/Function/ux/0</DataItem>
         </Attribute>
       </Grid>
     </Grid>

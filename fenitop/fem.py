@@ -20,7 +20,7 @@ Reference:
 
 import numpy as np
 import ufl
-from dolfinx.mesh import locate_entities_boundary, meshtags
+from dolfinx.mesh import locate_entities_boundary, meshtags, compute_midpoints
 from dolfinx.fem import (VectorFunctionSpace, FunctionSpace, Function, Constant,
                          dirichletbc, locate_dofs_topological, Expression, assemble_scalar, form)
 from fenitop.utility import create_mechanism_vectors
@@ -57,10 +57,44 @@ def form_fem(fem, opt):
     for i in range(6):
         c_field_list.append(Function(S))
 
-    p, eps = opt["penalty"], opt["epsilon"]
+    if "alpha_field" not in opt:
+        V0 = S0
+        alpha_field = Function(V0, name="alpha")
+        alpha_field.x.array[:] = 0.0
+
+        solid_sel = opt["solid_zone"]
+        mids = compute_midpoints(
+            mesh, mesh.topology.dim,
+            np.arange(mesh.topology.index_map(mesh.topology.dim).size_local,
+                      dtype=np.int32))
+        inside_solid = solid_sel(mids.T)
+        alpha_field.x.array[np.where(inside_solid)[0]] = 1.0
+        opt["alpha_field"] = alpha_field
+    else:
+        alpha_field = opt["alpha_field"]
+
+    E_mat = fem["young's modulus"]
+    nu_mat = fem["poisson's ratio"]
+    pref = E_mat / ((1.0 + nu_mat) * (1.0 - 2.0 * nu_mat))
+
+    C11 = pref * (1.0 - nu_mat)
+    C12 = pref * nu_mat
+    C33 = pref * (1.0 - 2.0 * nu_mat) / 2.0
+
+    C_p_const = [
+        Constant(mesh, PETSc.ScalarType(val)) for val in
+        [C11, C12, 0.0, C11, 0.0, C33]
+    ]
+
+    p_rho, eps_rho = opt["penalty"], opt["epsilon"]
+    rho_factor = eps_rho + (1.0 - eps_rho) * rho_phys_field**p_rho
+
     c_list = []
     for i in range(6):
-        c_list.append((eps + (1-eps)*rho_phys_field**p)*c_field_list[i])
+        Cd_i = c_field_list[i]
+        Cp_i = C_p_const[i]
+        c_eff = rho_factor * ((1.0 - alpha_field) * Cd_i + alpha_field * Cp_i)
+        c_list.append(c_eff)
 
     D_matrix = ufl.as_matrix([
         [c_list[0], c_list[1], c_list[2]],
@@ -77,7 +111,6 @@ def form_fem(fem, opt):
     E_field = 0.5*(1/S11+1/S22)
     nu = -0.5*(S12/S11+S12/S22)
 
-    p, eps = opt["penalty"], opt["epsilon"]
     _lambda, mu = E_field*nu/(1+nu)/(1-2*nu), E_field/(2*(1+nu))
 
     # Kinematics
@@ -90,9 +123,20 @@ def form_fem(fem, opt):
     # Boundary conditions
     dim = mesh.topology.dim
     fdim = dim - 1
-    disp_facets = locate_entities_boundary(mesh, fdim, fem["disp_bc"])
-    bc = dirichletbc(Constant(mesh, np.full(dim, 0.0)),
-                     locate_dofs_topological(V, fdim, disp_facets), V)
+    dirichlet_bcs = []
+
+    for val_vec, locator, comps in fem["disp_bcs"]:
+        const_val = Constant(mesh, np.array(val_vec, dtype=float))
+        target_facets = locate_entities_boundary(mesh, fdim, locator)
+
+        if comps is None:  # apply to full vector
+            dofs = locate_dofs_topological(V, fdim, target_facets)
+            dirichlet_bcs.append(dirichletbc(const_val, dofs, V))
+        else:              # apply to selected components
+            for c in comps:                          # c = 0 (ux) or 1 (uy)
+                dofs_c = locate_dofs_topological(V.sub(c), fdim, target_facets)
+                dirichlet_bcs.append(
+                    dirichletbc(PETSc.ScalarType(val_vec[c]), dofs_c, V.sub(c)))
 
     tractions, facets, markers = [], [], []
     for marker, (traction, traction_bc) in enumerate(fem["traction_bcs"]):
@@ -122,14 +166,43 @@ def form_fem(fem, opt):
     else:
         spring_vec, opt["l_vec"] = create_mechanism_vectors(
             V, opt["in_spring"], opt["out_spring"])
-        
+
     linear_problem = LinearProblem(u_field, lambda_field, lhs, rhs, opt["l_vec"],
-                                   spring_vec, [bc], fem["petsc_options"])
+                                   spring_vec, dirichlet_bcs, fem["petsc_options"])
+
+    # prepare cloaking
+    if "mask_control" not in opt:
+        V0 = S0
+        mask_control = Function(V0, name="mask_control")
+        mask_control.x.array[:] = 1.0
+
+        void_selector = opt["void_zone"]
+
+        mids = compute_midpoints(
+            mesh, mesh.topology.dim,
+            np.arange(mesh.topology.index_map(mesh.topology.dim).size_local,
+                      dtype=np.int32))
+
+        inside_bool = void_selector(mids.T)
+        mask_control.x.array[np.where(inside_bool)[0]] = 0.0
+
+        opt["mask_control"] = mask_control
+    else:
+        mask_control = opt["mask_control"]
+
+    u_ref_field = opt["u_ref_field"]
+    eps_ref = 1e-12
+    theta_u = Constant(mesh, np.array((1.0, 1.0)))
+
+    rel_vec = theta_u * (u_field - u_ref_field) / (u_ref_field + eps_ref)
+    err_density = ufl.inner(rel_vec, rel_vec) * mask_control
 
     # Define optimization-related variables
     opt["f_int"] = ufl.inner(sigma(u_field), epsilon(v))*dx
     opt["compliance"] = ufl.inner(sigma(u_field), epsilon(u_field))*dx
-    opt["volume"] = rho_phys_field * local_vf_phys_field * dx
+    opt["cloak"] = err_density * dx
+
+    opt["volume"] = local_vf_phys_field * dx
     opt["total_volume"] = Constant(mesh, 1.0 * max_vf) * dx
 
     return linear_problem, u_field, lambda_field, rho_field, rho_phys_field, ksi_field_list, ksi_phys_field_list, c_field_list, local_vf_field, local_vf_phys_field

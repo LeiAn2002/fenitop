@@ -117,8 +117,8 @@ def topopt(fem, opt):
     local_vf_min, local_vf_max = np.full(num_elems, 0.3), np.full(num_elems, 0.7)
     local_vf_min[solid], local_vf_max[void] = 0.7, 0.3
 
-    theta_min = np.concatenate((rho_min, *ksi_min_list, local_vf_min))
-    theta_max = np.concatenate((rho_max, *ksi_max_list, local_vf_max))
+    theta_min = np.concatenate((*ksi_min_list, local_vf_min))
+    theta_max = np.concatenate((*ksi_max_list, local_vf_max))
 
     # Start topology optimization
     opt_iter, beta, change = 0, 1, 2*opt["opt_tol"]
@@ -201,12 +201,12 @@ def topopt(fem, opt):
 
         g_vec = np.array([V_value-opt["vol_frac"]])
         zero_array = np.zeros_like(dVdvf)
-        dVdtheta = np.concatenate((np.tile(zero_array, block_types+1), dVdvf))
+        dVdtheta = np.concatenate((np.tile(zero_array, block_types), dVdvf))
         # dgdrho = np.vstack([dVdrho, dCdrho])
         # dgdksi_1 = np.vstack([zero_array, dCdksi_list[0]])
         dgdvf = np.vstack([dVdvf])
         dgdtheta = np.vstack([dVdtheta])
-        dJdtheta = np.concatenate([dJdrho] + dJdksi_list + [dJdvf])
+        dJdtheta = np.concatenate(dJdksi_list + [dJdvf])
 
         # if check_sens:
         #     sensitivity_check(
@@ -245,23 +245,23 @@ def topopt(fem, opt):
             #         density_filter_rho, heaviside, density_filter_ksi_list, normal_ksi, beta, c_update)
             
         # Update the design variables
-        rho_values = rho_field.vector.array.copy()
+        # rho_values = rho_field.vector.array.copy()
         ksi_value_list = []
         for i in range(block_types):
             ksi_value_list.append(ksi_field_list[i].vector.array.copy())
         vf_values = local_vf_field.vector.array.copy()
-        theta_values = np.concatenate([rho_values] + ksi_value_list + [vf_values])
+        theta_values = np.concatenate(ksi_value_list + [vf_values])
 
         theta_new, change, low, upp = mma_optimizer(
-            num_consts, num_elems*(block_types+2), opt_iter, theta_values, theta_min, theta_max,
+            num_consts, num_elems*(block_types+1), opt_iter, theta_values, theta_min, theta_max,
             theta_old1, theta_old2, dJdtheta, g_vec, dgdtheta, low, upp)
         theta_old2 = theta_old1.copy()
         theta_old1 = theta_values.copy()
 
-        rho_field.vector.array = theta_new.copy()[0:num_elems]
+        # rho_field.vector.array = theta_new.copy()[0:num_elems]
         
         for i in range(block_types):
-            j = i+1
+            j = i
             ksi_field_list[i].vector.array = theta_new.copy()[j*num_elems:(j+1)*num_elems]
 
         j += 1

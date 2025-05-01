@@ -9,126 +9,105 @@ import numpy as np
 import torch
 
 class Sensitivity_ksi():
-    def __init__(self, opt, problem, u_field, lambda_field, ksi_phys_field_list, c_field_list, local_vf_phys_field):
+    """
+    Compute cloak objective J and its gradient dJ/dκ  (κ = frequency hints + vf).
+    No compliance / mechanism remnants inside.
+    """
+    def __init__(self, opt, problem, u_field, lambda_field,
+                 ksi_phys_field_list, c_field_list, local_vf_phys_field):
 
-        self.block_types = opt["block_types"]
-        self.ksi_phys_field_list = ksi_phys_field_list
-        self.local_vf_phys_field = local_vf_phys_field
-        self.c_field_list = c_field_list
-        self.dfdc_form_list = []
-        self.dfdc_mat_list = []
-        self.dUdc_vec_list = []
-        self.dcdksi_mat_list = [[None for _ in range(6)] for _ in range(self.block_types+1)] # +1 is for volume fraction
-        self.dUdksi_vector_list = [[None for _ in range(6)] for _ in range(self.block_types+1)]
-        self.dCdksi_vec_list = [[None for _ in range(6)] for _ in range(self.block_types+1)]
+        self.comm       = problem.u.function_space.mesh.comm
+        self.problem    = problem
+        self.u_field    = u_field
+        self.lambda_fld = lambda_field
+        self.opt        = opt
+        # ------- objective & derivatives wrt U ------------------
+        # self.J_form  = form(opt["J"])
+        self.dJdU_vec = create_vector(form(
+            ufl.derivative(opt["cloak"], u_field)))
 
-        self.dCdc_form_list = []
-        self.dCdc_vec_list = []
-        self.opt_compliance = opt["opt_compliance"]
+        # adjoint matrix list  dJ/dc_j = -λᵀ ∂K/∂c_j U ------------
+        self.dJdc_form  = [form(ufl.adjoint(
+                            ufl.derivative(opt["f_int"], cj)))
+                           for cj in c_field_list]
+        self.dJdc_mat   = [create_matrix(f) for f in self.dJdc_form]
+        self.dUdc_vec   = [cj.vector.copy() for cj in c_field_list]
 
-        num_ele = len(self.ksi_phys_field_list[0].x.array.copy())
+        # ------- NN Jacobian containers -------------------------
+        m = opt["block_types"] + 1     # last dim = vf
+        nelem = len(local_vf_phys_field.x.array)
+        self.dcdksi_mat = [[PETSc.Mat().createAIJ([nelem, nelem], nnz=1,
+                                                  comm=self.comm)
+                            for _ in range(6)] for _ in range(m)]
+        self.dJdksi_vec = [[c_field_list[0].vector.copy() for _ in range(6)] for _ in range(m)]
 
-        for i in range(6):
-            self.dfdc_form_list.append(form(ufl.adjoint(ufl.derivative(opt["f_int"], c_field_list[i]))))
-            self.dfdc_mat_list.append(create_matrix(self.dfdc_form_list[i]))
-            self.dUdc_vec_list.append(c_field_list[i].vector.copy())
-
-            self.dCdc_form_list.append(form(-ufl.derivative(opt["compliance"], c_field_list[i])))
-            self.dCdc_vec_list.append(create_vector(self.dCdc_form_list[i]))
-
-        for i in range(self.block_types+1):
-            for j in range(6):
-                self.dUdksi_vector_list[i][j] = c_field_list[i].vector.copy()
-                self.dUdksi_vector_list[i][j].zeroEntries()
-                self.dUdksi_vector_list[i][j].assemble()
-
-                self.dCdksi_vec_list[i][j] = c_field_list[i].vector.copy()
-                self.dCdksi_vec_list[i][j].zeroEntries()
-                self.dCdksi_vec_list[i][j].assemble()
-
-                petsc_mat = PETSc.Mat().create()
-                petsc_mat.setSizes([num_ele, num_ele])
-                petsc_mat.setType('aij')
-                petsc_mat.setUp()
-                self.dcdksi_mat_list[i][j] = petsc_mat
-
-        self.problem, self.l_vec = problem, opt["l_vec"]
-        self.u_field, self.lambda_field = u_field, lambda_field
-        self.prod_vec = u_field.vector.copy()
-
-        form(ufl.adjoint(ufl.derivative(opt["f_int"], c_field_list[i])))
-
-
-    def evaluate(self):
-
-        for i in range(6):
-            with self.dCdc_vec_list[i].localForm() as loc:
-                loc.set(0)
-            assemble_vector(self.dCdc_vec_list[i], self.dCdc_form_list[i])
-            self.dCdc_vec_list[i].ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-
-        model = NeuralNetwork(input_size=self.block_types+1, hidden1_size=256, hidden2_size=256, output_size=6)
-        model.load_state_dict(torch.load('/shared/fenitop_for_virtualgrowth/fenitop/trained_model.pth'))
-        model.eval()
-        model = model.double()
-
-        ksi_value_list = []
-        for i in range(self.block_types):
-            ksi_value_list.append(self.ksi_phys_field_list[i].x.array)
-        ksi_value_list.append(self.local_vf_phys_field.x.array)
-
-        for i in range(len(ksi_value_list[1])):
-            fre_hints_and_vf = np.array([row[i] for row in ksi_value_list])
-            fre_hints_and_vf_tensor = torch.tensor(fre_hints_and_vf, dtype=torch.float64, requires_grad = True)
-            prediction = model(fre_hints_and_vf_tensor)
-            gradients = []
-            for j in range(6):
-                grad = torch.autograd.grad(prediction[j], fre_hints_and_vf_tensor,
-                                           retain_graph=True)[0]
-                gradients.append(grad)
-                for k in range(self.block_types+1):
-                    self.dcdksi_mat_list[k][j].setValue(i, i, gradients[j][k])
-                    self.dcdksi_mat_list[k][j].assemble()
-
-        for i in range(self.block_types+1):
-            for j in range(6):
-
-                self.dCdc_vec_list[j].assemble()
-                temp_vec2 = self.dCdc_vec_list[j].duplicate()
-                temp_vec2.zeroEntries()
-                self.dcdksi_mat_list[i][j].mult(self.dCdc_vec_list[j], temp_vec2)
-                self.dCdksi_vec_list[i][j] = temp_vec2
-                self.dCdksi_vec_list[i][j].assemble()
+        # store κ arrays & NN
+        self.ksi_arrays = [f.x.array for f in ksi_phys_field_list] \
+                        + [local_vf_phys_field.x.array]
         
-        if not self.opt_compliance:
-            self.problem.solve_adjoint()
+        self.nn = NeuralNetwork(input_size=m, hidden1_size=256, hidden2_size=256, output_size=6)
+        self.nn.load_state_dict(torch.load('/shared/fenitop_for_virtualgrowth/fenitop/trained_model.pth'))
+        self.nn.eval()
+        self.nn = self.nn.double()
 
-            for i in range(6):
-                self.dfdc_mat_list[i].zeroEntries()
-                assemble_matrix(self.dfdc_mat_list[i], self.dfdc_form_list[i])
-                self.dfdc_mat_list[i].assemble()
-                self.dfdc_mat_list[i].mult(self.lambda_field.vector, self.dUdc_vec_list[i])
+    # ------------------------------------------------------------
+    def _assemble_dJdU(self):
+        with self.dJdU_vec.localForm() as loc:
+            loc.set(0)
+        assemble_vector(self.dJdU_vec,
+                        form(ufl.derivative(self.opt["cloak"], self.u_field)))
+        self.dJdU_vec.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                                  mode=PETSc.ScatterMode.REVERSE)
 
-            for i in range(self.block_types+1):
-                for j in range(6):
+    def _solve_adjoint(self):
+        self.problem.set_adjoint_load(self.dJdU_vec)
+        self.problem.solve_adjoint()
 
-                    self.dcdksi_mat_list[i][j].assemble()
-                    self.dUdc_vec_list[j].assemble()
-                    temp_vec = self.dUdc_vec_list[j].duplicate()
-                    temp_vec.zeroEntries()
-                    self.dcdksi_mat_list[i][j].mult(self.dUdc_vec_list[j], temp_vec)
-                    self.dUdksi_vector_list[i][j] = temp_vec
-                    self.dUdksi_vector_list[i][j].assemble()
-        else:
-            for i in range(self.block_types+1):
-                for j in range(6):
-                    self.dUdksi_vector_list[i][j] = None
+    def _assemble_dJdc(self):
+        for mat, f, vec in zip(self.dJdc_mat, self.dJdc_form, self.dUdc_vec):
+            mat.zeroEntries()
+            assemble_matrix(mat, f)
+            mat.assemble()
+            mat.mult(self.lambda_fld.vector, vec)
 
-        sensitivities_list = self.dUdksi_vector_list
+    def _assemble_dcdksi(self):
+        m = len(self.ksi_arrays)
+        ne = len(self.ksi_arrays[0])
+        for e in range(ne):
+            z = np.array([arr[e] for arr in self.ksi_arrays], dtype=np.float64)
+            z_t = torch.tensor(z, dtype=torch.float64, requires_grad=True)
+            pred = self.nn(z_t)
+            for j in range(6):
+                grad = torch.autograd.grad(pred[j], z_t, retain_graph=True)[0]
+                for i in range(m):
+                    self.dcdksi_mat[i][j].setValue(e, e, grad[i].item())
+        for mats in self.dcdksi_mat:
+            for A in mats:
+                A.assemble()
 
-        # return sensitivities_list
-        dCdksi_list = self.dCdksi_vec_list
+    # ------------------------------------------------------------
+    def evaluate(self):
+        # (1) 目标值
+        # J_val = self.comm.allreduce(
+        #     assemble_scalar(self.J_form), op=MPI.SUM)
 
-        return sensitivities_list, dCdksi_list
+        # (2) dJ/dU 向量 & adjoint
+        self._assemble_dJdU()
+        self._solve_adjoint()
 
+        # (3) dJ/dc_j via λ
+        self._assemble_dJdc()
 
+        # (4) ∂c/∂κ via NN
+        self._assemble_dcdksi()
+
+        # (5) chain rule  dJ/dκ = dJ/dc · ∂c/∂κ
+        m = len(self.ksi_arrays)
+        for i in range(m):
+            for j in range(6):
+                vec = self.dJdksi_vec[i][j]
+                vec.zeroEntries()
+                self.dcdksi_mat[i][j].mult(self.dUdc_vec[j], vec)
+                vec.assemble()
+
+        return self.dJdksi_vec

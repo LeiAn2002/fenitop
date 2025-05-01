@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Mechanical-displacement cloak – pre-processing (dolfinx-0.7.3)
-生成四个 XDMF 文件：
-  ux_reference / uy_reference / ux_hole / uy_hole
-可以直接被 ParaView 打开。
+Pre-processing for mechanical cloak ― force-controlled version
+Produces ux_/uy_ fields for solid plate and plate-with-hole.
 """
 
 from mpi4py import MPI
@@ -13,94 +11,91 @@ import ufl
 from dolfinx import mesh, fem, io
 from dolfinx.fem import petsc
 
-# ----------------------- 0. 参数 -----------------------
-L, nel, order = 50.0, 50, 1           # 外形尺寸 / 网格
+# ---------- parameters ----------
+L, nel, order = 50.0, 50, 1
 hole_len = L / 4
-E, nu = 2.41, 0.35                    # 材料参数
-void_fact = 1e-8                      # 空洞等效极软因子
+E, nu = 2.41, 0.35
+void_fact = 1e-8
+ty = 0.2                         # uniform traction (N/mm) on top edge
 
 
 def solve_case(with_hole: bool):
-    # ---------- 1. 网格 ----------
+    # 1. mesh -------------------------------------------------------------
     domain = mesh.create_rectangle(
-        MPI.COMM_WORLD, [[0.0, 0.0], [L, L]],
+        MPI.COMM_WORLD, [[0, 0], [L, L]],
         [nel, nel], cell_type=mesh.CellType.quadrilateral)
 
-    # ---------- 2. 向量位移空间 ----------
-    V_vec = fem.FunctionSpace(
-        domain,
+    # 2. function spaces --------------------------------------------------
+    V = fem.FunctionSpace(domain,
         ufl.VectorElement("Lagrange", domain.ufl_cell(), order, dim=2))
+    u, v  = ufl.TrialFunction(V), ufl.TestFunction(V)
+    uh    = fem.Function(V, name="u")
 
-    u  = ufl.TrialFunction(V_vec)
-    v  = ufl.TestFunction(V_vec)
-    uh = fem.Function(V_vec, name="u")      # 待求解位移向量场
-
-    # ---------- 3. 实/空洞指示函数 ----------
+    # 3. material (same as before) ---------------------------------------
     chi = fem.Function(fem.FunctionSpace(domain, ("DG", 0)))
     chi.x.array[:] = 1.0
     if with_hole:
-        mids = mesh.compute_midpoints(
-            domain, domain.topology.dim,
+        mids = mesh.compute_midpoints(domain, domain.topology.dim,
             np.arange(domain.topology.index_map(domain.topology.dim).size_local,
-                      dtype=np.int32))
-        xmin, xmax = (L-hole_len)/2, (L+hole_len)/2
-        mask = ((mids[:, 0] >= xmin) & (mids[:, 0] <= xmax) &
-                (mids[:, 1] >= xmin) & (mids[:, 1] <= xmax))
+                                                       dtype=np.int32))
+        half = hole_len/2
+        mask = (np.abs(mids[:,0]-L/2)<half) & (np.abs(mids[:,1]-L/2)<half)
         chi.x.array[np.where(mask)[0]] = void_fact
 
-    mu    = fem.Function(chi.function_space)
-    lam   = fem.Function(chi.function_space)
-    mu.x.array[:]  = E/(2*(1+nu))           * chi.x.array
-    lam.x.array[:] = E*nu/((1+nu)*(1-2*nu)) * chi.x.array
+    mu  = fem.Function(chi.function_space)
+    lam = fem.Function(chi.function_space)
+    mu.x.array[:]  = E/(2*(1+nu))*chi.x.array
+    lam.x.array[:] = E*nu/((1+nu)*(1-2*nu))*chi.x.array
 
     def sigma(w):
         eps = ufl.sym(ufl.grad(w))
         return 2*mu*eps + lam*ufl.tr(eps)*ufl.Identity(2)
 
-    a  = ufl.inner(sigma(u), ufl.sym(ufl.grad(v))) * ufl.dx
-    Lf = ufl.inner(fem.Constant(domain, PETSc.ScalarType((0.0, 0.0))), v) * ufl.dx
+    a = ufl.inner(sigma(u), ufl.sym(ufl.grad(v)))*ufl.dx
+    # body force = 0
+    rhs = ufl.Constant(domain, PETSc.ScalarType((0.0, 0.0)))  # dummy
 
-    # ---------- 4. 边界条件 ----------
-    # uy = 0 底边
+    # 4. Dirichlet BC -----------------------------------------------------
+    # uy=0 bottom
     f_bot = mesh.locate_entities_boundary(domain, 1,
-        lambda x: np.isclose(x[1], 0.0))
+              lambda x: np.isclose(x[1], 0.0))
     bc_bot = fem.dirichletbc(PETSc.ScalarType(0.0),
-        fem.locate_dofs_topological(V_vec.sub(1), 1, f_bot), V_vec.sub(1))
-
-    # ux = 0 左下角
-    f_corner = mesh.locate_entities_boundary(domain, 0,
-        lambda x: np.isclose(x[0], 0.0) & np.isclose(x[1], 0.0))
+              fem.locate_dofs_topological(V.sub(1), 1, f_bot), V.sub(1))
+    # ux=0 bottom-left corner
+    v_corner = mesh.locate_entities_boundary(domain, 0,
+              lambda x: np.isclose(x[0],0.0)&np.isclose(x[1],0.0))
     bc_corner = fem.dirichletbc(PETSc.ScalarType(0.0),
-        fem.locate_dofs_topological(V_vec.sub(0), 0, f_corner), V_vec.sub(0))
+              fem.locate_dofs_topological(V.sub(0), 0, v_corner), V.sub(0))
 
-    # uy = 2 mm 顶边
+    # 5. Neumann load on top edge ----------------------------------------
     f_top = mesh.locate_entities_boundary(domain, 1,
-        lambda x: np.isclose(x[1], L))
-    bc_top = fem.dirichletbc(
-        fem.Constant(domain, PETSc.ScalarType((0.0, 2.0))),
-        fem.locate_dofs_topological(V_vec, 1, f_top), V_vec)
+              lambda x: np.isclose(x[1], L))
+    facet_tags = mesh.meshtags(domain, 1, f_top, np.zeros(len(f_top),dtype=np.int32))
+    ds_top = ufl.Measure("ds", domain=domain, subdomain_data=facet_tags)
 
-    # ---------- 5. 求解 ----------
+    t = fem.Constant(domain, PETSc.ScalarType((0.0, ty)))
+    rhs_form = ufl.dot(t, v)*ds_top(0)   # only tag 0
+    # assemble RHS into vector
+    L_vec = fem.petsc.create_vector(fem.form(rhs_form))
+    fem.petsc.assemble_vector(L_vec, fem.form(rhs_form))
+    L_vec.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+
+    # 6. linear solve -----------------------------------------------------
     problem = petsc.LinearProblem(
-        a, Lf, bcs=[bc_bot, bc_corner, bc_top],
-        u=uh, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
+        a, rhs_form, bcs=[bc_bot, bc_corner], u=uh,
+        petsc_options={"ksp_type":"preonly","pc_type":"lu"})
     problem.solve()
 
-    # ---------- 6. 拆分位移分量 ----------
-    V_scal = fem.FunctionSpace(domain, ("Lagrange", order))  # 与向量空间共节点
-    ux = fem.Function(V_scal, name="ux")
-    uy = fem.Function(V_scal, name="uy")
-
-    # 向量 DOF 排序：node0-ux, node0-uy, node1-ux, node1-uy, ...
-    ux.x.array[:] = uh.x.array[0::2]
-    uy.x.array[:] = uh.x.array[1::2]
-
-    return domain, ux, uy
+    # 7. split ------------------------------------------------------------
+    V0 = fem.FunctionSpace(domain, ("Lagrange", order))
+    ux = fem.Function(V0, name="ux"); ux.x.array[:] = uh.x.array[0::2]
+    uy = fem.Function(V0, name="uy"); uy.x.array[:] = uh.x.array[1::2]
+    return domain, ux, uy, uh
 
 
 # ------------------- 生成两种结构 -------------------
-mesh_ref,  ux_ref,  uy_ref  = solve_case(False)
-mesh_hole, ux_hole, uy_hole = solve_case(True)
+mesh_ref,  ux_ref,  uy_ref, u_ref  = solve_case(False)
+mesh_hole, ux_hole, uy_hole, u_hole = solve_case(True)
 
 # ------------------- 写入 XDMF ---------------------
 def write(path, m, f):
@@ -112,6 +107,8 @@ write("./data/ux_reference.xdmf", mesh_ref,  ux_ref)
 write("./data/uy_reference.xdmf", mesh_ref,  uy_ref)
 write("./data/ux_hole.xdmf",     mesh_hole, ux_hole)
 write("./data/uy_hole.xdmf",     mesh_hole, uy_hole)
+write("./data/u_reference.xdmf",  mesh_ref,  u_ref)
+write("./data/u_hole.xdmf",       mesh_hole, u_hole)
 
 if mesh_ref.comm.rank == 0:
     print("✅ displacement fields saved — open .xdmf in ParaView.")

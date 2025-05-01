@@ -28,6 +28,7 @@ from fenitop.utility import LinearProblem
 from fenitop.NN import NeuralNetwork
 from petsc4py import PETSc
 import torch
+from dolfinx.io import XDMFFile
 
 
 def form_fem(fem, opt):
@@ -72,6 +73,10 @@ def form_fem(fem, opt):
         opt["alpha_field"] = alpha_field
     else:
         alpha_field = opt["alpha_field"]
+
+    # with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_cloak/data_optimize/alpha_field.xdmf", "w") as xdmf:
+    #     xdmf.write_mesh(fem["mesh"]) 
+    #     xdmf.write_function(alpha_field) 
 
     E_mat = fem["young's modulus"]
     nu_mat = fem["poisson's ratio"]
@@ -123,20 +128,9 @@ def form_fem(fem, opt):
     # Boundary conditions
     dim = mesh.topology.dim
     fdim = dim - 1
-    dirichlet_bcs = []
-
-    for val_vec, locator, comps in fem["disp_bcs"]:
-        const_val = Constant(mesh, np.array(val_vec, dtype=float))
-        target_facets = locate_entities_boundary(mesh, fdim, locator)
-
-        if comps is None:  # apply to full vector
-            dofs = locate_dofs_topological(V, fdim, target_facets)
-            dirichlet_bcs.append(dirichletbc(const_val, dofs, V))
-        else:              # apply to selected components
-            for c in comps:                          # c = 0 (ux) or 1 (uy)
-                dofs_c = locate_dofs_topological(V.sub(c), fdim, target_facets)
-                dirichlet_bcs.append(
-                    dirichletbc(PETSc.ScalarType(val_vec[c]), dofs_c, V.sub(c)))
+    disp_facets = locate_entities_boundary(mesh, fdim, fem["disp_bc"])
+    bc = dirichletbc(Constant(mesh, np.full(dim, 0.0)),
+                     locate_dofs_topological(V, fdim, disp_facets), V)
 
     tractions, facets, markers = [], [], []
     for marker, (traction, traction_bc) in enumerate(fem["traction_bcs"]):
@@ -161,14 +155,10 @@ def form_fem(fem, opt):
     rhs = ufl.dot(b, v)*dx
     for marker, t in enumerate(tractions):
         rhs += ufl.dot(t, v)*ds(marker)
-    if opt["opt_compliance"]:
-        spring_vec = opt["l_vec"] = None
-    else:
-        spring_vec, opt["l_vec"] = create_mechanism_vectors(
-            V, opt["in_spring"], opt["out_spring"])
+    spring_vec = opt["l_vec"] = None
 
     linear_problem = LinearProblem(u_field, lambda_field, lhs, rhs, opt["l_vec"],
-                                   spring_vec, dirichlet_bcs, fem["petsc_options"])
+                                   spring_vec, [bc], fem["petsc_options"])
 
     # prepare cloaking
     if "mask_control" not in opt:
@@ -194,7 +184,12 @@ def form_fem(fem, opt):
     eps_ref = 1e-12
     theta_u = Constant(mesh, np.array((1.0, 1.0)))
 
-    rel_vec = theta_u * (u_field - u_ref_field) / (u_ref_field + eps_ref)
+    # print(u_field.x.array.shape)
+    # print(u_ref_field.x.array.shape)
+    rel_vec = ufl.as_vector([
+        theta_u * (u_field[0] - u_ref_field[0]) / (u_ref_field[0] + eps_ref),
+        theta_u * (u_field[1] - u_ref_field[1]) / (u_ref_field[1] + eps_ref),
+    ])
     err_density = ufl.inner(rel_vec, rel_vec) * mask_control
 
     # Define optimization-related variables

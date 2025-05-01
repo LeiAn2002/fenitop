@@ -72,8 +72,8 @@ def topopt(fem, opt):
 
     if comm.rank == 0:
         plotter = Plotter(fem["mesh_serial"])
-    num_consts = 1 if opt["opt_compliance"] else 2
-    # num_consts = 1
+    # num_consts = 1 if opt["opt_compliance"] else 2
+    num_consts = 1
     num_elems = rho_field.vector.array.size
     num_checked_elems = 20
     eps = 1e-2
@@ -111,7 +111,7 @@ def topopt(fem, opt):
     for i in range(block_types):
         ksi_field_list[i].vector.array[:] = ksi_ini_list[i]
 
-    vf_ini = np.full(num_elems, 0.5)
+    vf_ini = np.full(num_elems, 0.2)
     vf_ini[solid], vf_ini[void] = 0.7, 0.3
     local_vf_field.vector.array[:] = vf_ini
     local_vf_min, local_vf_max = np.full(num_elems, 0.3), np.full(num_elems, 0.7)
@@ -122,7 +122,8 @@ def topopt(fem, opt):
 
     # Start topology optimization
     opt_iter, beta, change = 0, 1, 2*opt["opt_tol"]
-    while opt_iter < opt["max_iter"] and change > opt["opt_tol"]:
+    # while opt_iter < opt["max_iter"] and change > opt["opt_tol"]:
+    while opt_iter < opt["max_iter"]:
         opt_start_time = time.perf_counter()
         opt_iter += 1
 
@@ -149,104 +150,63 @@ def topopt(fem, opt):
         normal_ksi.forward()
 
         c_update.update()
+
+        # print(max(local_vf_phys_field.vector.array))
         
         # Solve FEM
         linear_problem.solve_fem()
 
+        # print(u_field.vector.array)
+
         # Compute function values and sensitivities
-        [C_value, V_value, U_value], sensitivities, dVdvf_vec = sens_problem.evaluate()
+        [J_value, V_value], sensitivities, dVdvf_vec = sens_problem.evaluate()
        
         heaviside_rho.backward(sensitivities)
 
-        [dCdrho, dVdrho, dUdrho] = density_filter_rho.backward(sensitivities)
+        dJdrho = density_filter_rho.backward(sensitivities)[0]
         # print(max(np.array(dVdvf_vec)))
 
         dVdvf = density_filter_vf.backward([dVdvf_vec])[0]
         # print(max(np.array(dVdvf)))
 
-        sensitivities_ksi_and_vf, dCdksi_vector_ksi_and_vf = sens_problem_ksi_and_vf.evaluate()
+        sensitivities_ksi_and_vf = sens_problem_ksi_and_vf.evaluate()
 
-        dUdksi_middle_list = []
-        dCdksi_middle_list = []
+        dJdksi_middle_list = []
         
         # 下面这段是在干啥：sensitivity需要多次求和（参见CMAME）
-        if not opt["opt_compliance"]:
-            for j in range(block_types):
-                res_dUdksi_middle = sensitivities_ksi_and_vf[0][0].duplicate()
-                res_dUdksi_middle.zeroEntries()
-                for k in range(block_types):
-                    res_dUdksi_middle_part2 = sensitivities_ksi_and_vf[0][0].duplicate()
-                    res_dUdksi_middle_part2.zeroEntries()
-                    for i in range(6):
-                        res_dUdksi_middle_part2.axpy(1.0, sensitivities_ksi_and_vf[k][i])
-                    normal_ksi.backward(res_dUdksi_middle_part2, j, k)
-
-                    res_dUdksi_middle.axpy(1.0, res_dUdksi_middle_part2)
-
-                dUdksi_middle_list.append(res_dUdksi_middle)
-
-            dUdksi_list = []
-            for i in range(block_types):
-                dUdksii = density_filter_ksi_list[i].backward([dUdksi_middle_list[i]])
-                dUdksi_list.append(dUdksii[0])
-
         for j in range(block_types):
-            res_dCdksi_middle = dCdksi_vector_ksi_and_vf[0][0].duplicate()
-            res_dCdksi_middle.zeroEntries()
+            res_dJdksi_middle = sensitivities_ksi_and_vf[0][0].duplicate()
+            res_dJdksi_middle.zeroEntries()
             for k in range(block_types):
-                res_dCdksi_middle_part2 = dCdksi_vector_ksi_and_vf[0][0].duplicate()
-                res_dCdksi_middle_part2.zeroEntries()
-
+                res_dJdksi_middle_part2 = sensitivities_ksi_and_vf[0][0].duplicate()
+                res_dJdksi_middle_part2.zeroEntries()
                 for i in range(6):
-                    res_dCdksi_middle_part2.axpy(1.0, dCdksi_vector_ksi_and_vf[k][i])
+                    res_dJdksi_middle_part2.axpy(1.0, sensitivities_ksi_and_vf[k][i])
+                normal_ksi.backward(res_dJdksi_middle_part2, j, k)
 
-                normal_ksi.backward(res_dCdksi_middle_part2, j, k)
+                res_dJdksi_middle.axpy(1.0, res_dJdksi_middle_part2)
 
-                res_dCdksi_middle.axpy(1.0, res_dCdksi_middle_part2)
+            dJdksi_middle_list.append(res_dJdksi_middle)
 
-            dCdksi_middle_list.append(res_dCdksi_middle)
-
-        # print(np.linalg.norm(dCdksi_middle_list[0].array-dCdksi_middle_list[1].array))
-        # print(np.linalg.norm(dCdksi_vector_list[0][0].array-dCdksi_vector_list[1][0].array))
-
-        dCdksi_list = []
-
+        dJdksi_list = []
         for i in range(block_types):
-            dCdksii = density_filter_ksi_list[i].backward([dCdksi_middle_list[i]])
-            dCdksi_list.append(dCdksii[0])
+            dJdksii = density_filter_ksi_list[i].backward([dJdksi_middle_list[i]])
+            dJdksi_list.append(dJdksii[0])
         
-        if not opt["opt_compliance"]:
-            res_dUdkvf_middle = sensitivities_ksi_and_vf[0][0].duplicate()
-            res_dUdkvf_middle.zeroEntries()
-            for i in range(6):
-                res_dUdkvf_middle.axpy(1.0, sensitivities_ksi_and_vf[block_types][i])
-            dUdvf = density_filter_vf.backward([res_dUdkvf_middle])[0]
-
-        res_dCdvf_middle = dCdksi_vector_ksi_and_vf[0][0].duplicate()
-        res_dCdvf_middle.zeroEntries()
+        res_dJdkvf_middle = sensitivities_ksi_and_vf[0][0].duplicate()
+        res_dJdkvf_middle.zeroEntries()
         for i in range(6):
-            res_dCdvf_middle.axpy(1.0, dCdksi_vector_ksi_and_vf[block_types][i])
-        dCdvf = density_filter_vf.backward([res_dCdvf_middle])[0]
+            res_dJdkvf_middle.axpy(1.0, sensitivities_ksi_and_vf[block_types][i])
+        dJdvf = density_filter_vf.backward([res_dJdkvf_middle])[0]
 
-        if opt["opt_compliance"]:
-            g_vec = np.array([V_value-opt["vol_frac"]])
-            dJdrho, dgdrho = dCdrho, np.vstack([dVdrho])
-            zero_array = np.zeros_like(dVdrho)
-            dVdtheta = np.concatenate((dVdrho, np.tile(zero_array, block_types), dVdvf))
-            dgdtheta = np.vstack([dVdtheta])
-            dgdvf = np.vstack([dVdvf])
-            dJdtheta = np.concatenate([dCdrho] + dCdksi_list + [dCdvf])
-
-        else:
-            g_vec = np.array([V_value-opt["vol_frac"], C_value-opt["compliance_bound"]])
-            dCdtheta = np.concatenate([dCdrho] + dCdksi_list + [dCdvf])
-            zero_array = np.zeros_like(dVdrho)
-            dVdtheta = np.concatenate((dVdrho, np.tile(zero_array, block_types), dVdvf))
-            # dgdrho = np.vstack([dVdrho, dCdrho])
-            # dgdksi_1 = np.vstack([zero_array, dCdksi_list[0]])
-            dgdvf = np.vstack([dVdvf, dCdvf])
-            dJdrho, dgdtheta = dUdrho, np.vstack([dVdtheta, dCdtheta])
-            dJdtheta = np.concatenate([dJdrho] + dUdksi_list + [dUdvf])
+        g_vec = np.array([V_value-opt["vol_frac"]])
+        zero_array = np.zeros_like(dVdvf)
+        dVdtheta = np.concatenate((np.tile(zero_array, block_types+1), dVdvf))
+        # dgdrho = np.vstack([dVdrho, dCdrho])
+        # dgdksi_1 = np.vstack([zero_array, dCdksi_list[0]])
+        dgdvf = np.vstack([dVdvf])
+        dgdtheta = np.vstack([dVdtheta])
+        dJdtheta = np.concatenate([dJdrho] + dJdksi_list + [dJdvf])
 
         # if check_sens:
         #     sensitivity_check(
@@ -255,16 +215,12 @@ def topopt(fem, opt):
         #         density_filter_rho, heaviside, density_filter_ksi_list, normal_ksi, beta, c_update)
 
         if check_sens:
-            if opt["opt_compliance"]:
-                sensitivity_check(
-                    comm, opt, linear_problem, sens_problem, local_vf_field, num_elems, num_consts,
-                    num_checked_elems, eps, C_value, g_vec, dCdvf, dgdvf,
-                    density_filter_rho, heaviside_rho, density_filter_ksi_list, normal_ksi, density_filter_vf, beta, c_update)
-            else:
-                sensitivity_check(
-                    comm, opt, linear_problem, sens_problem, local_vf_field, num_elems, num_consts,
-                    num_checked_elems, eps, U_value, g_vec, dUdvf, dgdvf,
-                    density_filter_rho, heaviside_rho, density_filter_ksi_list, normal_ksi, density_filter_vf, beta, c_update)
+            sensitivity_check(
+                comm, opt, linear_problem, sens_problem, local_vf_field, num_elems, num_consts,
+                num_checked_elems, eps, J_value, g_vec, dJdvf, dgdvf,
+                density_filter_rho, heaviside_rho, density_filter_ksi_list, normal_ksi, density_filter_vf, beta, c_update)
+            
+
         # if check_sens:
         #     if opt["opt_compliance"]:
         #         sensitivity_check(
@@ -295,18 +251,12 @@ def topopt(fem, opt):
             ksi_value_list.append(ksi_field_list[i].vector.array.copy())
         vf_values = local_vf_field.vector.array.copy()
         theta_values = np.concatenate([rho_values] + ksi_value_list + [vf_values])
-        if opt["opt_compliance"] and opt["use_oc"]:
-            # rho_new, change = optimality_criteria(
-            #     rho_values, rho_min, rho_max, g_vec, dJdrho, dgdrho[0], opt["move"])
-            theta_new, change = optimality_criteria(
-                theta_values, theta_min, theta_max, g_vec, dJdtheta, dgdtheta[0], opt["move"])
 
-        else:
-            theta_new, change, low, upp = mma_optimizer(
-                num_consts, num_elems*(block_types+2), opt_iter, theta_values, theta_min, theta_max,
-                theta_old1, theta_old2, dJdtheta, g_vec, dgdtheta, low, upp)
-            theta_old2 = theta_old1.copy()
-            theta_old1 = theta_values.copy()
+        theta_new, change, low, upp = mma_optimizer(
+            num_consts, num_elems*(block_types+2), opt_iter, theta_values, theta_min, theta_max,
+            theta_old1, theta_old2, dJdtheta, g_vec, dgdtheta, low, upp)
+        theta_old2 = theta_old1.copy()
+        theta_old1 = theta_values.copy()
 
         rho_field.vector.array = theta_new.copy()[0:num_elems]
         
@@ -321,27 +271,31 @@ def topopt(fem, opt):
         opt_time = time.perf_counter() - opt_start_time
         if comm.rank == 0:
             print(f"opt_iter: {opt_iter}, opt_time: {opt_time:.3g} (s), "
-                  f"beta: {beta}, C: {C_value:.3f}, V: {V_value:.3f}, "
-                  f"U: {U_value:.3f}, change: {change:.3f}", flush=True)
+                  f"beta: {beta}, Error: {J_value:.3f}, V: {V_value:.3f}, "
+                  f"change: {change:.3f}", flush=True)
         
     values = S_comm.gather(rho_phys_field)
     if comm.rank == 0:
         plotter.plot(values)
 
-    save_xdmf(fem["mesh"], rho_phys_field, "/shared/fenitop_for_virtualgrowth/data/rho_field.xdmf")
+    save_xdmf(fem["mesh"], rho_phys_field, "/shared/fenitop_for_cloak/data_optimize/rho_field.xdmf")
 
-    with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_virtualgrowth/data/ksi_field_1.xdmf", "w") as xdmf:
+    with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_cloak/data_optimize/ksi_field_1.xdmf", "w") as xdmf:
         xdmf.write_mesh(fem["mesh"]) 
         xdmf.write_function(ksi_phys_field_list[0]) 
 
-    with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_virtualgrowth/data/ksi_field_2.xdmf", "w") as xdmf:
+    with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_cloak/data_optimize/ksi_field_2.xdmf", "w") as xdmf:
         xdmf.write_mesh(fem["mesh"]) 
         xdmf.write_function(ksi_phys_field_list[1]) 
 
-    with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_virtualgrowth/data/ksi_field_3.xdmf", "w") as xdmf:
+    with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_cloak/data_optimize/ksi_field_3.xdmf", "w") as xdmf:
         xdmf.write_mesh(fem["mesh"]) 
         xdmf.write_function(ksi_phys_field_list[2]) 
 
-    with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_virtualgrowth/data/vf_field.xdmf", "w") as xdmf:
+    with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_cloak/data_optimize/vf_field.xdmf", "w") as xdmf:
         xdmf.write_mesh(fem["mesh"]) 
         xdmf.write_function(local_vf_phys_field) 
+
+    with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_cloak/data_optimize/u_field.xdmf", "w") as xdmf:
+        xdmf.write_mesh(fem["mesh"]) 
+        xdmf.write_function(u_field) 

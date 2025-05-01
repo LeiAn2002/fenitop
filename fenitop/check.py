@@ -75,15 +75,12 @@ def sensitivity_check(
         linear_problem.solve_fem()
 
         # Compute function values
-        [C_value, V_value, U_value], sensitivities, dVdvf = sens_problem.evaluate()
+        [J_value, V_value], sensitivities, dVdvf_vec = sens_problem.evaluate()
         
-        if opt["opt_compliance"]:
-            J, g_vec = C_value, np.array([V_value-opt["vol_frac"]])
-        else:
-            J = U_value
-            # J = c_field_list[0].x.array[0]
-            g_vec = np.array([V_value-opt["vol_frac"], C_value-opt["compliance_bound"]])
-            # g_vec = np.array([V_value-opt["vol_frac"]])
+        J = J_value
+        # J = c_field_list[0].x.array[0]
+        g_vec = np.array([V_value-opt["vol_frac"]])
+        # g_vec = np.array([V_value-opt["vol_frac"]])
 
         if rank == 0:
             dJdrho_diff[check_iter] = (J-J_old) / eps

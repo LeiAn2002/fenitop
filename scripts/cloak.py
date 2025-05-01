@@ -23,7 +23,7 @@ from mpi4py import MPI
 from dolfinx.mesh import create_rectangle, CellType
 
 from fenitop.topopt import topopt
-
+from fenitop.utility import load_field_from_h5
 
 mesh = create_rectangle(MPI.COMM_WORLD, [[0.0, 0.0], [50, 50]],
                         [50, 50], CellType.quadrilateral)
@@ -33,18 +33,16 @@ if MPI.COMM_WORLD.rank == 0:
 else:
     mesh_serial = None
 
+u_ref, _ = load_field_from_h5(mesh, "./data/u_reference.h5")
+
 fem = {  # FEA parameters
     "mesh": mesh,
     "mesh_serial": mesh_serial,
     "young's modulus": 2.41,
     "poisson's ratio": 0.35,
-    "disp_bcs": [
-        # (value_vector, locator_function, affected_components)
-        ((0.0, 0.0), lambda x: np.isclose(x[1], 0.0), [1]),
-        ((0.0, 0.0), lambda x: np.isclose(x[0], 0) & np.isclose(x[1],0), [0]),
-        ((0.0, 2.0), lambda x: np.isclose(x[1], 50.0), None),
-    ],
-    "traction_bcs": [],
+    "disp_bc": lambda x: np.isclose(x[1], 0.0) | (np.isclose(x[0], 0.0) & np.isclose(x[1], 0.0)),
+    "traction_bcs": [[(0, 0.2),
+                      lambda x: (np.isclose(x[1], 50))]],
     "body_force": (0, 0),
     "quadrature_degree": 2,
     "petsc_options": {
@@ -55,9 +53,9 @@ fem = {  # FEA parameters
 }
 
 opt = {  # Topology optimization parameters
-    "max_iter": 300,
+    "max_iter": 100,
     "opt_tol": 1e-2,
-    "vol_frac": 0.5,
+    "vol_frac": 0.8,
     "solid_zone": lambda x: (
         (np.less(x[0], 5.0) | np.greater(x[0], 45.0) |
          np.less(x[1], 5.0) | np.greater(x[1], 45.0))
@@ -70,7 +68,7 @@ opt = {  # Topology optimization parameters
         )
     ),
 
-    "solid_zone_rho": lambda x: lambda x: np.logical_not(
+    "solid_zone_rho": lambda x: np.logical_not(
         np.logical_and(np.abs(x[0] - 25.0) < 6.25,
                        np.abs(x[1] - 25.0) < 6.25)
     ),
@@ -82,10 +80,9 @@ opt = {  # Topology optimization parameters
     "beta_max": 128,
     "use_oc": False,
     "move": 0.05,
-    "opt_compliance": False,
-    # "compliance_bound": 0.5,
     "block_types": 3,
     "max_vf": 0.7,
+    "u_ref_field": u_ref,
 }
 
 if __name__ == "__main__":

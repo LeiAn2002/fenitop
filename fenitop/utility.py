@@ -23,10 +23,12 @@ from scipy.spatial import cKDTree
 from petsc4py import PETSc
 import dolfinx.io
 from dolfinx.fem import form, Function
-from dolfinx import la
+from dolfinx import la, fem
 from dolfinx.fem.petsc import (create_vector, create_matrix,
                                assemble_vector, assemble_matrix, set_bc)
 import pyvista
+import h5py
+import ufl
 
 
 def create_mechanism_vectors(func_space, in_spring, out_spring):
@@ -97,8 +99,12 @@ class LinearProblem:
         self.solver.solve(self.rhs_vec, self.u_wrap)
         self.u.x.scatter_forward()
 
+    def set_adjoint_load(self, rhs_vec):
+        self.l_vec = rhs_vec
+
     def solve_adjoint(self):
         """Solve K*lambda=-L for the adjoint equation."""
+        # 此处有过正负号改动
         self.solver.solve(-self.l_vec, self.lam_wrap)
         self.lam.x.scatter_forward()
 
@@ -225,7 +231,33 @@ class Plotter():
 
 
 def save_xdmf(mesh, rho, path=""):
-    xdmf = dolfinx.io.XDMFFile(mesh.comm, path+"optimized_design.xdmf", "w")
+    xdmf = dolfinx.io.XDMFFile(mesh.comm, path, "w")
     xdmf.write_mesh(mesh)
     rho.name = "density"
     xdmf.write_function(rho)
+
+
+def load_field_from_h5(mesh, h5_path, func_name=None):
+
+    with h5py.File(h5_path, "r") as h5:
+        fn_group = list(h5["Function"].keys())[0] if func_name is None else func_name
+        data     = h5[f"Function/{fn_group}/0"][()]          # shape = (ndof, dim)
+
+    if data.ndim == 1:
+        raise ValueError("检测到标量数据；请使用 load_field_from_h5()。")
+
+    ndof, dim = data.shape
+
+    element = ufl.VectorElement("Lagrange", mesh.ufl_cell(), 1, dim=dim)
+    V_vec   = fem.FunctionSpace(mesh, element)
+
+    f = fem.Function(V_vec, name=fn_group)
+
+    flat_data = data.ravel()
+    loc0, loc1 = f.vector.getOwnershipRange()
+    f.vector.array[:] = flat_data[loc0:loc1]
+
+    f.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT_VALUES,
+                         mode=PETSc.ScatterMode.FORWARD)
+
+    return f, dim

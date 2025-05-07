@@ -53,9 +53,9 @@ fem = {  # FEA parameters
 }
 
 opt = {  # Topology optimization parameters
-    "max_iter": 100,
+    "max_iter": 200,
     "opt_tol": 1e-2,
-    "vol_frac": 0.8,
+    "vol_frac": 0.7,
     "solid_zone": lambda x: (
         (np.less(x[0], 5.0) | np.greater(x[0], 45.0) |
          np.less(x[1], 5.0) | np.greater(x[1], 45.0))
@@ -79,7 +79,7 @@ opt = {  # Topology optimization parameters
     "beta_interval": 50,
     "beta_max": 128,
     "use_oc": False,
-    "move": 0.05,
+    "move": 0.01,
     "block_types": 3,
     "max_vf": 0.7,
     "u_ref_field": u_ref,

@@ -93,29 +93,32 @@ def topopt(fem, opt):
     rho_ini[solid_rho], rho_ini[void] = 0.995, 0.005
     rho_field.vector.array[:] = rho_ini
     rho_min, rho_max = np.zeros(num_elems), np.ones(num_elems)
-    rho_min[solid_rho], rho_max[void] = 0.99, 0.01
+    rho_min[solid_rho], rho_max[void] = 0.995, 0.005
 
     ksi_ini_list = []
     ksi_min_list = []
     ksi_max_list = []
     for i in range(block_types):
         ksi_ini_list.append(np.full(num_elems, 1/3))
-        ksi_min_list.append(np.full(num_elems, 0.1))
-        ksi_max_list.append(np.full(num_elems, 0.9))
+        ksi_min_list.append(np.full(num_elems, 0.0))
+        ksi_max_list.append(np.full(num_elems, 1.0))
     ksi_ini_list[0][solid], ksi_ini_list[0][void] = 0.99, 0.99
     ksi_ini_list[1][solid], ksi_ini_list[1][void] = 0.005, 0.005
     ksi_ini_list[2][solid], ksi_ini_list[2][void] = 0.005, 0.005
     ksi_min_list[0][solid], ksi_min_list[0][void] = 0.99, 0.99
     ksi_max_list[1][solid], ksi_max_list[1][void] = 0.005, 0.005
     ksi_max_list[2][solid], ksi_max_list[2][void] = 0.005, 0.005
+
+    # np.savetxt('array.txt', ksi_max_list[1], fmt='%.4f')
+
     for i in range(block_types):
         ksi_field_list[i].vector.array[:] = ksi_ini_list[i]
 
-    vf_ini = np.full(num_elems, 0.2)
+    vf_ini = np.full(num_elems, 0.3)
     vf_ini[solid], vf_ini[void] = 0.7, 0.3
     local_vf_field.vector.array[:] = vf_ini
     local_vf_min, local_vf_max = np.full(num_elems, 0.3), np.full(num_elems, 0.7)
-    local_vf_min[solid], local_vf_max[void] = 0.7, 0.3
+    local_vf_min[solid], local_vf_max[void] = 0.695, 0.305
 
     theta_min = np.concatenate((*ksi_min_list, local_vf_min))
     theta_max = np.concatenate((*ksi_max_list, local_vf_max))
@@ -205,6 +208,7 @@ def topopt(fem, opt):
         # dgdrho = np.vstack([dVdrho, dCdrho])
         # dgdksi_1 = np.vstack([zero_array, dCdksi_list[0]])
         dgdvf = np.vstack([dVdvf])
+        dgdksi = np.vstack([zero_array])
         dgdtheta = np.vstack([dVdtheta])
         dJdtheta = np.concatenate(dJdksi_list + [dJdvf])
 
@@ -219,6 +223,12 @@ def topopt(fem, opt):
                 comm, opt, linear_problem, sens_problem, local_vf_field, num_elems, num_consts,
                 num_checked_elems, eps, J_value, g_vec, dJdvf, dgdvf,
                 density_filter_rho, heaviside_rho, density_filter_ksi_list, normal_ksi, density_filter_vf, beta, c_update)
+            
+        # if check_sens:
+        #     sensitivity_check(
+        #         comm, opt, linear_problem, sens_problem, ksi_field_list[0], num_elems, num_consts,
+        #         num_checked_elems, eps, J_value, g_vec, dJdksi_list[0], dgdksi,
+        #         density_filter_rho, heaviside_rho, density_filter_ksi_list, normal_ksi, density_filter_vf, beta, c_update)
             
 
         # if check_sens:

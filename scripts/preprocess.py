@@ -68,22 +68,20 @@ def solve_case(with_hole: bool):
               fem.locate_dofs_topological(V.sub(0), 0, v_corner), V.sub(0))
 
     # 5. Neumann load on top edge ----------------------------------------
-    f_top = mesh.locate_entities_boundary(domain, 1,
-              lambda x: np.isclose(x[1], L))
-    facet_tags = mesh.meshtags(domain, 1, f_top, np.zeros(len(f_top),dtype=np.int32))
-    ds_top = ufl.Measure("ds", domain=domain, subdomain_data=facet_tags)
+    f_top = mesh.locate_entities_boundary(
+    domain, 1, lambda x: np.isclose(x[1], L))
 
-    t = fem.Constant(domain, PETSc.ScalarType((0.0, ty)))
-    rhs_form = ufl.dot(t, v)*ds_top(0)   # only tag 0
-    # assemble RHS into vector
-    L_vec = fem.petsc.create_vector(fem.form(rhs_form))
-    fem.petsc.assemble_vector(L_vec, fem.form(rhs_form))
-    L_vec.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+    bc_top = fem.dirichletbc(
+        PETSc.ScalarType(2.0),
+        fem.locate_dofs_topological(V.sub(1), 1, f_top),
+        V.sub(1))
 
-    # 6. linear solve -----------------------------------------------------
+    zero_rhs = fem.Constant(domain, PETSc.ScalarType((0.0, 0.0)))
     problem = petsc.LinearProblem(
-        a, rhs_form, bcs=[bc_bot, bc_corner], u=uh,
-        petsc_options={"ksp_type":"preonly","pc_type":"lu"})
+        a, ufl.dot(zero_rhs, v)*ufl.dx,
+        bcs=[bc_bot, bc_corner, bc_top],
+        u=uh,
+        petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
     problem.solve()
 
     # 7. split ------------------------------------------------------------

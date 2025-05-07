@@ -156,9 +156,14 @@ def form_fem(fem, opt):
               lambda x: np.isclose(x[0],0.0)&np.isclose(x[1],0.0))
     bc_corner = dirichletbc(PETSc.ScalarType(0.0),
               locate_dofs_topological(V.sub(0), 0, v_corner), V.sub(0))
+    
+    f_top = locate_entities_boundary(mesh, 1,
+              lambda x: np.isclose(x[1], 50))
+
+    bc_top = dirichletbc(PETSc.ScalarType(2.0),locate_dofs_topological(V.sub(1), 1, f_top),V.sub(1))
 
     # Combine BCs
-    bcs = [bc_bot, bc_corner]
+    bcs = [bc_bot, bc_corner, bc_top]
     
     tractions, facets, markers = [], [], []
     for marker, (traction, traction_bc) in enumerate(fem["traction_bcs"]):

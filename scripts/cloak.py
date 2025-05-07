@@ -41,8 +41,9 @@ fem = {  # FEA parameters
     "young's modulus": 2.41,
     "poisson's ratio": 0.35,
     "disp_bc": lambda x: np.isclose(x[1], 0.0) | (np.isclose(x[0], 0.0) & np.isclose(x[1], 0.0)),
-    "traction_bcs": [[(0, 0.2),
-                      lambda x: (np.isclose(x[1], 50))]],
+    # "traction_bcs": [[(0, 0.2),
+    #                   lambda x: (np.isclose(x[1], 50))]],
+    "traction_bcs": [],
     "body_force": (0, 0),
     "quadrature_degree": 2,
     "petsc_options": {

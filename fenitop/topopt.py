@@ -41,7 +41,7 @@ def topopt(fem, opt):
     comm = MPI.COMM_WORLD
     block_types = opt["block_types"]
     
-    check_sens = False
+    check_sens = True
     linear_problem, u_field, lambda_field, rho_field, rho_phys_field, ksi_field_list, ksi_phys_field_list, c_field_list, local_vf_field, local_vf_phys_field = form_fem(fem, opt)
     density_filter_rho = DensityFilter(comm, rho_field, rho_phys_field,
                                    opt["filter_radius"], fem["petsc_options"])

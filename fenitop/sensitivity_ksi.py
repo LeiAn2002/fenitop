@@ -88,7 +88,7 @@ class Sensitivity_ksi:
         # 5) derivative ∂Ju/∂U = (1/R2)*(r/Ju)
         rhs = r.copy()
         rhs.scale(2.0 / R2)
-        rhs.pointwiseMult(rhs, self.theta)
+        # rhs.pointwiseMult(rhs, self.theta)
 
         return Ju, rhs
 

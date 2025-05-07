@@ -90,13 +90,30 @@ class LinearProblem:
         set_bc(self.rhs_vec, self.bcs)
 
     def solve_fem(self):
-        """Solve K*x=F for FEM."""
+        # ---- assemble K -------------------------------------------------
         self.lhs_mat.zeroEntries()
         assemble_matrix(self.lhs_mat, self.lhs_form, bcs=self.bcs)
         self.lhs_mat.assemble()
-        if self.spring_vec is not None:
-            self.lhs_mat.setDiagonal(self.lhs_mat.getDiagonal()+self.spring_vec)
+
+        # ---- assemble F -------------------------------------------------
+        self.rhs_vec.zeroEntries()
+        assemble_vector(self.rhs_vec, self.rhs_form)
+        self.rhs_vec.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                                mode=PETSc.ScatterMode.REVERSE)
+
+        # ---- move Dirichlet columns to RHS ------------------------------
+        fem.apply_lifting(self.rhs_vec, [self.lhs_form], [self.bcs])   # <-- 关键：用 Form
+        self.rhs_vec.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                                mode=PETSc.ScatterMode.REVERSE)
+
+        # ---- write prescribed g into RHS DOFs ---------------------------
+        fem.set_bc(self.rhs_vec, self.bcs)
+
+        # ---- solve ------------------------------------------------------
         self.solver.solve(self.rhs_vec, self.u_wrap)
+
+        # ---- write exact g into solution DOFs ---------------------------
+        fem.set_bc(self.u_wrap, self.bcs)
         self.u.x.scatter_forward()
 
     def set_adjoint_load(self, rhs_vec):
@@ -104,7 +121,6 @@ class LinearProblem:
 
     def solve_adjoint(self):
         """Solve K*lambda=-L for the adjoint equation."""
-        # 此处有过正负号改动
         self.solver.solve(-self.l_vec, self.lam_wrap)
         self.lam.x.scatter_forward()
 

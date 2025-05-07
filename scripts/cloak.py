@@ -54,9 +54,9 @@ fem = {  # FEA parameters
 }
 
 opt = {  # Topology optimization parameters
-    "max_iter": 200,
+    "max_iter": 300,
     "opt_tol": 1e-2,
-    "vol_frac": 0.7,
+    "vol_frac": 0.9,
     "solid_zone": lambda x: (
         (np.less(x[0], 5.0) | np.greater(x[0], 45.0) |
          np.less(x[1], 5.0) | np.greater(x[1], 45.0))

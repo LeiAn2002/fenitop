@@ -56,7 +56,7 @@ class Sensitivity:
         # (5) derivative ∂Ju/∂U = (2/R2) * (r)
         rhs = r.copy()
         rhs.scale(2.0 / R2)
-        rhs.pointwiseMult(rhs, self.theta_vec)
+        # rhs.pointwiseMult(rhs, self.theta_vec)
 
         return Ju, rhs
 

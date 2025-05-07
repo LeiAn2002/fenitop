@@ -23,8 +23,7 @@ import time
 import numpy as np
 from mpi4py import MPI
 from dolfinx.io import XDMFFile
-
-from fenitop.fem import form_fem
+from fenitop.fem import form_fem, Function
 from fenitop.parameterize import DensityFilter, Heaviside, Normalization
 from fenitop.sensitivity import Sensitivity
 from fenitop.optimize import optimality_criteria, mma_optimizer
@@ -308,4 +307,4 @@ def topopt(fem, opt):
 
     with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_cloak/data_optimize/u_field.xdmf", "w") as xdmf:
         xdmf.write_mesh(fem["mesh"]) 
-        xdmf.write_function(u_field) 
+        xdmf.write_function(u_field)

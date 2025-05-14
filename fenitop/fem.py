@@ -125,6 +125,7 @@ def form_fem(fem, opt):
         u_field[1].dx(1),
         u_field[0].dx(1) + u_field[1].dx(0)
     ])
+
     # S_matrix = ufl.inv(D_matrix)
 
     # S11 = S_matrix[0, 0]
@@ -148,17 +149,17 @@ def form_fem(fem, opt):
     fdim = dim - 1
 
     f_bot = locate_entities_boundary(mesh, 1,
-              lambda x: np.isclose(x[1], 0.0))
+              lambda x: np.isclose(x[1], -25.0))
     bc_bot = dirichletbc(PETSc.ScalarType(0.0),
               locate_dofs_topological(V.sub(1), 1, f_bot), V.sub(1))
     # ux=0 bottom-left corner
     v_corner = locate_entities_boundary(mesh, 0,
-              lambda x: np.isclose(x[0],0.0)&np.isclose(x[1],0.0))
+              lambda x: np.isclose(x[0],-25.0)&np.isclose(x[1],-25.0))
     bc_corner = dirichletbc(PETSc.ScalarType(0.0),
               locate_dofs_topological(V.sub(0), 0, v_corner), V.sub(0))
     
     f_top = locate_entities_boundary(mesh, 1,
-              lambda x: np.isclose(x[1], 50))
+              lambda x: np.isclose(x[1], 25.0))
 
     bc_top = dirichletbc(PETSc.ScalarType(2.0),locate_dofs_topological(V.sub(1), 1, f_top),V.sub(1))
 
@@ -223,9 +224,11 @@ def form_fem(fem, opt):
     #    void_sel 返回 True 表示该点在空洞中
     void_sel   = opt["void_zone"]
     is_void    = void_sel(coords.T)            # shape = (n_vertices,)
+    solid_sel = opt["solid_zone"]
+    is_solid  = solid_sel(coords.T) 
 
     # 3. 受控区域 = 非空洞  
-    ctrl_node  = ~is_void                     # True for control nodes
+    ctrl_node = np.logical_not(np.logical_or(is_void, is_solid))        # True for control nodes
 
     # 4. 扩展到向量 DOF （ux, uy），得到 θ_vec 长度 = 2*n_vertices
     theta_vec  = u_field.vector.copy()        # PETSc.Vec 模板

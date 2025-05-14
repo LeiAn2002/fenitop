@@ -22,7 +22,7 @@ ty = 0.2                         # uniform traction (N/mm) on top edge
 def solve_case(with_hole: bool):
     # 1. mesh -------------------------------------------------------------
     domain = mesh.create_rectangle(
-        MPI.COMM_WORLD, [[0, 0], [L, L]],
+        MPI.COMM_WORLD, [[-L/2, -L/2], [L/2, L/2]],
         [nel, nel], cell_type=mesh.CellType.quadrilateral)
 
     # 2. function spaces --------------------------------------------------
@@ -39,7 +39,7 @@ def solve_case(with_hole: bool):
             np.arange(domain.topology.index_map(domain.topology.dim).size_local,
                                                        dtype=np.int32))
         half = hole_len/2
-        mask = (np.abs(mids[:,0]-L/2)<half) & (np.abs(mids[:,1]-L/2)<half)
+        mask = (np.abs(mids[:,0])<half) & (np.abs(mids[:,1])<half)
         chi.x.array[np.where(mask)[0]] = void_fact
 
     mu  = fem.Function(chi.function_space)
@@ -58,18 +58,18 @@ def solve_case(with_hole: bool):
     # 4. Dirichlet BC -----------------------------------------------------
     # uy=0 bottom
     f_bot = mesh.locate_entities_boundary(domain, 1,
-              lambda x: np.isclose(x[1], 0.0))
+              lambda x: np.isclose(x[1], -25.0))
     bc_bot = fem.dirichletbc(PETSc.ScalarType(0.0),
               fem.locate_dofs_topological(V.sub(1), 1, f_bot), V.sub(1))
     # ux=0 bottom-left corner
     v_corner = mesh.locate_entities_boundary(domain, 0,
-              lambda x: np.isclose(x[0],0.0)&np.isclose(x[1],0.0))
+              lambda x: np.isclose(x[0],-25.0)&np.isclose(x[1],-25.0))
     bc_corner = fem.dirichletbc(PETSc.ScalarType(0.0),
               fem.locate_dofs_topological(V.sub(0), 0, v_corner), V.sub(0))
 
-    # 5. Neumann load on top edge ----------------------------------------
+    # 5. load on top edge ----------------------------------------
     f_top = mesh.locate_entities_boundary(
-    domain, 1, lambda x: np.isclose(x[1], L))
+    domain, 1, lambda x: np.isclose(x[1], L/2))
 
     bc_top = fem.dirichletbc(
         PETSc.ScalarType(2.0),

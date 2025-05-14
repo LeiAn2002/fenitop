@@ -23,6 +23,7 @@ import time
 import numpy as np
 from mpi4py import MPI
 from dolfinx.io import XDMFFile
+from dolfinx.fem import Function, Expression
 from fenitop.fem import form_fem, Function
 from fenitop.parameterize import DensityFilter, Heaviside, Normalization
 from fenitop.sensitivity import Sensitivity
@@ -41,7 +42,7 @@ def topopt(fem, opt):
     comm = MPI.COMM_WORLD
     block_types = opt["block_types"]
     
-    check_sens = True
+    check_sens = False
     linear_problem, u_field, lambda_field, rho_field, rho_phys_field, ksi_field_list, ksi_phys_field_list, c_field_list, local_vf_field, local_vf_phys_field = form_fem(fem, opt)
     density_filter_rho = DensityFilter(comm, rho_field, rho_phys_field,
                                    opt["filter_radius"], fem["petsc_options"])
@@ -72,10 +73,10 @@ def topopt(fem, opt):
     if comm.rank == 0:
         plotter = Plotter(fem["mesh_serial"])
     # num_consts = 1 if opt["opt_compliance"] else 2
-    num_consts = 1
+    num_consts = 0
     num_elems = rho_field.vector.array.size
     num_checked_elems = 20
-    eps = 1e-2
+    eps = 1e-4
 
     if not opt["use_oc"]:
         theta_old1, theta_old2 = np.zeros(num_elems*4), np.zeros(num_elems*4)
@@ -88,7 +89,7 @@ def topopt(fem, opt):
     centers = rho_field.function_space.tabulate_dof_coordinates()[:num_elems].T
     solid, void = opt["solid_zone"](centers), opt["void_zone"](centers)
     solid_rho = opt["solid_zone_rho"](centers)
-    rho_ini = np.full(num_elems, opt["vol_frac"])
+    rho_ini = np.full(num_elems, 0.5)
     rho_ini[solid_rho], rho_ini[void] = 0.995, 0.005
     rho_field.vector.array[:] = rho_ini
     rho_min, rho_max = np.zeros(num_elems), np.ones(num_elems)
@@ -113,7 +114,7 @@ def topopt(fem, opt):
     for i in range(block_types):
         ksi_field_list[i].vector.array[:] = ksi_ini_list[i]
 
-    vf_ini = np.full(num_elems, 0.3)
+    vf_ini = np.full(num_elems, 0.5)
     vf_ini[solid], vf_ini[void] = 0.7, 0.3
     local_vf_field.vector.array[:] = vf_ini
     local_vf_min, local_vf_max = np.full(num_elems, 0.3), np.full(num_elems, 0.7)
@@ -201,14 +202,16 @@ def topopt(fem, opt):
             res_dJdkvf_middle.axpy(1.0, sensitivities_ksi_and_vf[block_types][i])
         dJdvf = density_filter_vf.backward([res_dJdkvf_middle])[0]
 
-        g_vec = np.array([V_value-opt["vol_frac"]])
+        # g_vec = np.array([V_value-opt["vol_frac"]])
+        g_vec = np.array([])
         zero_array = np.zeros_like(dVdvf)
         dVdtheta = np.concatenate((np.tile(zero_array, block_types), dVdvf))
         # dgdrho = np.vstack([dVdrho, dCdrho])
         # dgdksi_1 = np.vstack([zero_array, dCdksi_list[0]])
         dgdvf = np.vstack([dVdvf])
         dgdksi = np.vstack([zero_array])
-        dgdtheta = np.vstack([dVdtheta])
+        # dgdtheta = np.vstack([dVdtheta])
+        dgdtheta = np.array([])
         dJdtheta = np.concatenate(dJdksi_list + [dJdvf])
 
         # if check_sens:
@@ -219,8 +222,8 @@ def topopt(fem, opt):
 
         if check_sens:
             sensitivity_check(
-                comm, opt, linear_problem, sens_problem, local_vf_field, num_elems, num_consts,
-                num_checked_elems, eps, J_value, g_vec, dJdvf, dgdvf,
+                comm, opt, linear_problem, sens_problem, ksi_field_list[0], num_elems, num_consts,
+                num_checked_elems, eps, J_value, g_vec, dJdksi_list[0], dgdksi,
                 density_filter_rho, heaviside_rho, density_filter_ksi_list, normal_ksi, density_filter_vf, beta, c_update)
             
         # if check_sens:
@@ -308,3 +311,26 @@ def topopt(fem, opt):
     with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_cloak/data_optimize/u_field.xdmf", "w") as xdmf:
         xdmf.write_mesh(fem["mesh"]) 
         xdmf.write_function(u_field)
+
+    V = u_field.function_space
+    du = Function(V, name="u_diff")
+
+    U_ref_vec = opt["U_ref_vec"]
+    # 2) 直接操作 .x.array
+    du.x.array[:] = u_field.x.array - U_ref_vec.array
+    du.x.scatter_forward()
+
+    mesh = fem["mesh"]
+    # 3) 写 XDMF
+    with XDMFFile(mesh.comm, "u_diff_vector.xdmf", "w") as xdmf:
+        xdmf.write_mesh(mesh)
+        xdmf.write_function(du)
+
+    # S = rho_phys_field.function_space
+    # expr = Expression(c_list[0], S.element.interpolation_points())
+    # rho_factor_field = Function(S, name="c_eff")
+    # rho_factor_field.interpolate(expr)
+
+    # with XDMFFile(mesh.comm, "c_eff.xdmf", "w") as xdmf:
+    #     xdmf.write_mesh(mesh)           # mesh only once
+    #     xdmf.write_function(rho_factor_field)

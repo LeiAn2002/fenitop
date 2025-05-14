@@ -48,6 +48,7 @@ class Sensitivity:
         # for speed, you can cache R2 to opt and skip this every iter.
         temp = self.Uref_vec.copy()
         temp.pointwiseMult(temp, self.theta_vec)   # temp = θ⊙Ū
+        # print(temp.array.max())
         R2 = temp.dot(temp)
 
         # (4) Ju = (J2/R2)

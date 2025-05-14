@@ -45,3 +45,4 @@ class FieldUpdater:
 
         for i in range(6):
             self.c_field_list[i].x.array[:] = c_value_list[i].copy()
+            self.c_field_list[i].x.scatter_forward()

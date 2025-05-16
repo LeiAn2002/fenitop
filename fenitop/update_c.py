@@ -26,7 +26,7 @@ class FieldUpdater:
         for i in range(6):
             c_value_list.append(self.c_field_list[i].x.array.copy())
 
-        path = '/shared/fenitop_for_virtualgrowth/fenitop/trained_model.pth'
+        path = '/shared/VirtualGrowth/Fenitop/fenitop/fenitop/trained_model.pth'
         model = NeuralNetwork(input_size=self.block_types+1, hidden1_size=256,
                               hidden2_size=256, output_size=6)
         model.load_state_dict(torch.load(path))

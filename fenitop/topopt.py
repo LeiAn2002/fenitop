@@ -32,6 +32,7 @@ from fenitop.utility import Communicator, Plotter, save_xdmf
 from fenitop.sensitivity_ksi import Sensitivity_ksi
 from fenitop.check import sensitivity_check
 from fenitop.update_c import FieldUpdater
+from petsc4py import PETSc
 # from fenitop.check_dcdksi import Sensitivity_check_cksi
 
 
@@ -334,3 +335,20 @@ def topopt(fem, opt):
     # with XDMFFile(mesh.comm, "c_eff.xdmf", "w") as xdmf:
     #     xdmf.write_mesh(mesh)           # mesh only once
     #     xdmf.write_function(rho_factor_field)
+
+    V_vf = local_vf_field.function_space                # 体积分数的空间 CG1
+    comm = mesh.comm
+
+    # ------------------------------------------------------------------
+    # 1) 把 dJdvf Vec 拷到 Function
+    # ------------------------------------------------------------------
+    dJdvf_func = Function(V_vf, name="dJdvf")
+
+    # ←← 关键：直接拷贝 NumPy 数组
+    dJdvf_func.x.array[:] = dJdvf           # dJdvf 是 np.ndarray
+    dJdvf_func.x.scatter_forward()          # 同步并行分区
+
+    # 2) 写 XDMF -------------------------------------------------------------
+    with XDMFFile(comm, "dJdvf_field.xdmf", "w") as xdmf:
+        xdmf.write_mesh(mesh)               # 写一次网格
+        xdmf.write_function(dJdvf_func)     # 写梯度场

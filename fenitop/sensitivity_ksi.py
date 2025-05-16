@@ -42,7 +42,7 @@ class Sensitivity_ksi:
                                 hidden2_size=256,
                                 output_size=6).double()
         self.nn.load_state_dict(torch.load(
-            '/shared/fenitop_for_virtualgrowth/fenitop/trained_model.pth',
+            '/shared/VirtualGrowth/Fenitop/fenitop/fenitop/trained_model.pth',
             map_location='cpu'))
         self.nn.eval()
 

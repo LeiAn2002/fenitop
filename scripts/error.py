@@ -8,7 +8,7 @@ import ufl
 from fenitop.topopt import topopt
 from fenitop.utility import load_field_from_h5
 
-domain = create_rectangle(MPI.COMM_WORLD, [[0.0, 0.0], [50, 50]],
+domain = create_rectangle(MPI.COMM_WORLD, [[-25.0, -25.0], [25.0, 25.0]],
                         [50, 50], CellType.quadrilateral)
 u_opt, _ = load_field_from_h5(domain, "./data_optimize/u_field.h5")
 u_ref, _ = load_field_from_h5(domain, "./data/u_reference.h5")
@@ -39,8 +39,8 @@ cell_mids = mesh.compute_midpoints(
 
 # 方孔中心 (25,25)，半边长 L/8 = 6.25
 inside = np.where(
-    (np.abs(cell_mids[:, 0] - 25.0) < 6.25) &
-    (np.abs(cell_mids[:, 1] - 25.0) < 6.25)
+    (np.abs(cell_mids[:, 0]) < 6.25) &
+    (np.abs(cell_mids[:, 1]) < 6.25)
 )[0]
 mask.x.array[inside] = 0.0            # 空洞区域不参与积分
 

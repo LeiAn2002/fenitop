@@ -63,7 +63,7 @@ def solve_case(with_hole: bool):
               fem.locate_dofs_topological(V.sub(1), 1, f_bot), V.sub(1))
     # ux=0 bottom-left corner
     v_corner = mesh.locate_entities_boundary(domain, 0,
-              lambda x: np.isclose(x[0],-25.0)&np.isclose(x[1],-25.0))
+              lambda x: np.isclose(x[0],0.0)&np.isclose(x[1],-25.0))
     bc_corner = fem.dirichletbc(PETSc.ScalarType(0.0),
               fem.locate_dofs_topological(V.sub(0), 0, v_corner), V.sub(0))
 

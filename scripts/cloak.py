@@ -54,7 +54,7 @@ fem = {  # FEA parameters
 }
 
 opt = {  # Topology optimization parameters
-    "max_iter": 300,
+    "max_iter": 600,
     "opt_tol": 1e-2,
     # "vol_frac": 0.9,
     # "solid_zone": lambda x: (
@@ -80,7 +80,7 @@ opt = {  # Topology optimization parameters
     "penalty": 3.0,
     "epsilon": 1e-6,
     "filter_radius": 0.5,
-    "beta_interval": 50,
+    "beta_interval": 40,
     "beta_max": 128,
     "use_oc": False,
     "move": 0.01,

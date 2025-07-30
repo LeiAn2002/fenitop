@@ -293,17 +293,10 @@ def topopt(fem, opt):
 
     save_xdmf(fem["mesh"], rho_phys_field, "/shared/fenitop_for_cloak/data_optimize/rho_field.xdmf")
 
-    with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_cloak/data_optimize/ksi_field_1.xdmf", "w") as xdmf:
-        xdmf.write_mesh(fem["mesh"]) 
-        xdmf.write_function(ksi_phys_field_list[0]) 
-
-    with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_cloak/data_optimize/ksi_field_2.xdmf", "w") as xdmf:
-        xdmf.write_mesh(fem["mesh"]) 
-        xdmf.write_function(ksi_phys_field_list[1]) 
-
-    with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_cloak/data_optimize/ksi_field_3.xdmf", "w") as xdmf:
-        xdmf.write_mesh(fem["mesh"]) 
-        xdmf.write_function(ksi_phys_field_list[2]) 
+    for i in range(block_types):
+        with XDMFFile(fem["mesh"].comm, f"/shared/fenitop_for_cloak/data/ksi_field_{i+1}.xdmf", "w") as xdmf:
+            xdmf.write_mesh(fem["mesh"])
+            xdmf.write_function(ksi_phys_field_list[i])
 
     with XDMFFile(fem["mesh"].comm, "/shared/fenitop_for_cloak/data_optimize/vf_field.xdmf", "w") as xdmf:
         xdmf.write_mesh(fem["mesh"]) 
@@ -323,7 +316,7 @@ def topopt(fem, opt):
 
     mesh = fem["mesh"]
     # 3) 写 XDMF
-    with XDMFFile(mesh.comm, "u_diff_vector.xdmf", "w") as xdmf:
+    with XDMFFile(mesh.comm, "/shared/fenitop_for_cloak/data_optimize/u_diff_vector.xdmf", "w") as xdmf:
         xdmf.write_mesh(mesh)
         xdmf.write_function(du)
 
@@ -349,6 +342,6 @@ def topopt(fem, opt):
     dJdvf_func.x.scatter_forward()          # 同步并行分区
 
     # 2) 写 XDMF -------------------------------------------------------------
-    with XDMFFile(comm, "dJdvf_field.xdmf", "w") as xdmf:
+    with XDMFFile(comm, "/shared/fenitop_for_cloak/data_optimize/dJdvf_field.xdmf", "w") as xdmf:
         xdmf.write_mesh(mesh)               # 写一次网格
         xdmf.write_function(dJdvf_func)     # 写梯度场

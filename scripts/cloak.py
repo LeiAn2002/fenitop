@@ -38,8 +38,8 @@ u_ref, _ = load_field_from_h5(mesh, "./data/u_reference.h5")
 fem = {  # FEA parameters
     "mesh": mesh,
     "mesh_serial": mesh_serial,
-    "young's modulus": 2.41,
-    "poisson's ratio": 0.35,
+    "young's modulus": 2000,
+    "poisson's ratio": 0.34,
     # "disp_bc": lambda x: np.isclose(x[1], 0.0) | (np.isclose(x[0], 0.0) & np.isclose(x[1], 0.0)),
     # "traction_bcs": [[(0, 0.2),
     #                   lambda x: (np.isclose(x[1], 50))]],

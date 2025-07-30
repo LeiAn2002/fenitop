@@ -218,40 +218,40 @@ def form_fem(fem, opt):
     # 4) 缓存
     opt["U_ref_vec"] = U_ref_vec
         
-    V0 = FunctionSpace(mesh, ("CG", 1))
-    coords = V0.tabulate_dof_coordinates()     # shape = (n_vertices, dim)
+    # V0 = FunctionSpace(mesh, ("CG", 1))
+    # coords = V0.tabulate_dof_coordinates()     # shape = (n_vertices, dim)
 
-    # 2. 调用你已有的 void_zone(lambda) 得到布尔掩码
-    #    void_sel 返回 True 表示该点在空洞中
-    void_sel   = opt["void_zone"]
-    is_void    = void_sel(coords.T)            # shape = (n_vertices,)
-    solid_sel = opt["solid_zone"]
-    is_solid  = solid_sel(coords.T) 
+    # # 2. 调用你已有的 void_zone(lambda) 得到布尔掩码
+    # #    void_sel 返回 True 表示该点在空洞中
+    # void_sel   = opt["void_zone"]
+    # is_void    = void_sel(coords.T)            # shape = (n_vertices,)
+    # solid_sel = opt["solid_zone"]
+    # is_solid  = solid_sel(coords.T) 
 
-    # 3. 受控区域 = 非空洞  
-    ctrl_node = np.logical_not(np.logical_or(is_void, is_solid))        # True for control nodes
+    # # 3. 受控区域 = 非空洞
+    # ctrl_node = np.logical_not(np.logical_or(is_void, is_solid))        # True for control nodes
 
-    # 4. 扩展到向量 DOF （ux, uy），得到 θ_vec 长度 = 2*n_vertices
-    theta_vec  = u_field.vector.copy()        # PETSc.Vec 模板
-    arr        = np.repeat(ctrl_node.astype(np.float64), 2)
-    theta_vec.array[:] = arr
-    theta_vec.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                        mode=PETSc.ScatterMode.FORWARD)
+    # # 4. 扩展到向量 DOF （ux, uy），得到 θ_vec 长度 = 2*n_vertices
+    # theta_vec  = u_field.vector.copy()        # PETSc.Vec 模板
+    # arr        = np.repeat(ctrl_node.astype(np.float64), 2)
+    # theta_vec.array[:] = arr
+    # theta_vec.ghostUpdate(addv=PETSc.InsertMode.INSERT,
+    #                     mode=PETSc.ScatterMode.FORWARD)
     
-    # Vv = VectorFunctionSpace(mesh, ("CG", 1))
-    # theta_f = Function(Vv, name="theta_vec")
+    # # Vv = VectorFunctionSpace(mesh, ("CG", 1))
+    # # theta_f = Function(Vv, name="theta_vec")
 
-    # # 把 Vec 的数据直接贴到 Function
-    # theta_f.x.array[:] = theta_vec.array
-    # theta_f.x.scatter_forward()
+    # # # 把 Vec 的数据直接贴到 Function
+    # # theta_f.x.array[:] = theta_vec.array
+    # # theta_f.x.scatter_forward()
 
-    # # 写到 XDMF
-    # with XDMFFile(mesh.comm, "theta_vec_vector.xdmf", "w") as xdmf:
-    #     xdmf.write_mesh(mesh)
-    #     xdmf.write_function(theta_f)
+    # # # 写到 XDMF
+    # # with XDMFFile(mesh.comm, "theta_vec_vector.xdmf", "w") as xdmf:
+    # #     xdmf.write_mesh(mesh)
+    # #     xdmf.write_function(theta_f)
 
-    # # 5. 缓存供 Sensitivity 使用
-    opt["theta_vec"] = theta_vec
+    # # # 5. 缓存供 Sensitivity 使用
+    # opt["theta_vec"] = theta_vec
 
     # Define optimization-related variables
     opt["f_int"] = ufl.inner(D_matrix*eps_u_field, eps_v)*dx

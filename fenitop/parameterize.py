@@ -109,19 +109,21 @@ class Heaviside():
 
 
 class Normalization():
-    def __init__(self, ksi_phys_field_list):
+    def __init__(self, ksi_phys_field_list, opt):
         self.ksi_phys_field_list = ksi_phys_field_list
+        self.block_types = opt["block_types"]
 
     def forward(self):
+
         self.ksi_i_old = []
-        for i in range(3):
+        for i in range(self.block_types):
             self.ksi_i_old.append(self.ksi_phys_field_list[i].vector.array.copy())
         self.sumksi = sum(self.ksi_i_old)
         self.dksi = 1 / sum(self.ksi_i_old)
-        for i in range(3):
+        for i in range(self.block_types):
             self.ksi_phys_field_list[i].vector.array[:] = (
                 self.ksi_phys_field_list[i].vector.array * self.dksi)
-        for i in range(3):
+        for i in range(self.block_types):
             self.ksi_phys_field_list[i].x.scatter_forward()
 
     def backward(self, vector, which_ksi, number):

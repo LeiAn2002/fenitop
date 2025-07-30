@@ -37,7 +37,9 @@ def form_fem(fem, opt):
     """Form an FEA problem."""
     # Function spaces and functions
     mesh = fem["mesh"]
+    mesh_ref = fem["mesh_ref"]
     V = VectorFunctionSpace(mesh, ("CG", 1))
+    V_ref = VectorFunctionSpace(mesh_ref, ("CG", 1))
     S0 = FunctionSpace(mesh, ("DG", 0))
     S = FunctionSpace(mesh, ("CG", 1))
     block_types = opt["block_types"]
@@ -149,17 +151,17 @@ def form_fem(fem, opt):
     fdim = dim - 1
 
     f_bot = locate_entities_boundary(mesh, 1,
-              lambda x: np.isclose(x[1], -25.0))
+              lambda x: np.isclose(x[1], -10.0))
     bc_bot = dirichletbc(PETSc.ScalarType(0.0),
               locate_dofs_topological(V.sub(1), 1, f_bot), V.sub(1))
     # ux=0 bottom-left corner
     v_corner = locate_entities_boundary(mesh, 0,
-              lambda x: np.isclose(x[0],0.0)&np.isclose(x[1],-25.0))
+              lambda x: np.isclose(x[0], 0.0)&np.isclose(x[1], -10.0))
     bc_corner = dirichletbc(PETSc.ScalarType(0.0),
               locate_dofs_topological(V.sub(0), 0, v_corner), V.sub(0))
     
     f_top = locate_entities_boundary(mesh, 1,
-              lambda x: np.isclose(x[1], 25.0))
+              lambda x: np.isclose(x[1], 10.0))
 
     bc_top = dirichletbc(PETSc.ScalarType(2.0),locate_dofs_topological(V.sub(1), 1, f_top),V.sub(1))
 
@@ -209,49 +211,135 @@ def form_fem(fem, opt):
     new_arr[0::2] = raw[0::3]            # x 分量
     new_arr[1::2] = raw[1::3]            # y 分量
 
+    U_ref = Function(V_ref)
+    U_ref_vec = U_ref.vector.copy()  # PETSc.Vec template
+
     # 3) 用 u_field.vector (2 分量) 作为模板创建新的参考 Vec
-    U_ref_vec = u_field.vector.copy()
     U_ref_vec.setArray(new_arr)          # 直接把 array 贴上
     U_ref_vec.ghostUpdate(addv=PETSc.InsertMode.INSERT,
                         mode=PETSc.ScatterMode.FORWARD)
 
-    # 4) 缓存
-    opt["U_ref_vec"] = U_ref_vec
-        
-    # V0 = FunctionSpace(mesh, ("CG", 1))
-    # coords = V0.tabulate_dof_coordinates()     # shape = (n_vertices, dim)
+    # # 4) 缓存
 
-    # # 2. 调用你已有的 void_zone(lambda) 得到布尔掩码
-    # #    void_sel 返回 True 表示该点在空洞中
-    # void_sel   = opt["void_zone"]
-    # is_void    = void_sel(coords.T)            # shape = (n_vertices,)
-    # solid_sel = opt["solid_zone"]
-    # is_solid  = solid_sel(coords.T) 
+    # # 5) 计算theta
 
-    # # 3. 受控区域 = 非空洞
-    # ctrl_node = np.logical_not(np.logical_or(is_void, is_solid))        # True for control nodes
+    # cell_dim = mesh_ref.topology.dim
+    # cells_ref = np.arange(mesh_ref.topology.index_map(cell_dim).size_local, dtype=np.int32)
 
-    # # 4. 扩展到向量 DOF （ux, uy），得到 θ_vec 长度 = 2*n_vertices
-    # theta_vec  = u_field.vector.copy()        # PETSc.Vec 模板
-    # arr        = np.repeat(ctrl_node.astype(np.float64), 2)
-    # theta_vec.array[:] = arr
-    # theta_vec.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-    #                     mode=PETSc.ScatterMode.FORWARD)
-    
-    # # Vv = VectorFunctionSpace(mesh, ("CG", 1))
-    # # theta_f = Function(Vv, name="theta_vec")
+    # # mid‑points of reference and perforated cells (local arrays)
+    # mids_ref = compute_midpoints(mesh_ref,  cell_dim, cells_ref)
+    # mid_set_hole = {
+    #     tuple(np.round(pt, 8))
+    #     for pt in compute_midpoints(
+    #         mesh,
+    #         cell_dim,
+    #         np.arange(mesh.topology.index_map(cell_dim).size_local, dtype=np.int32),
+    #     )
+    # }
 
-    # # # 把 Vec 的数据直接贴到 Function
-    # # theta_f.x.array[:] = theta_vec.array
-    # # theta_f.x.scatter_forward()
+    # V0_nodal = FunctionSpace(mesh_ref, ("CG", 1))
+    # mask_scalar = Function(V0_nodal, name="mask_scalar")
+    # mask_scalar.x.array[:] = 1.0        # 默认全部置 1
 
-    # # # 写到 XDMF
-    # # with XDMFFile(mesh.comm, "theta_vec_vector.xdmf", "w") as xdmf:
-    # #     xdmf.write_mesh(mesh)
-    # #     xdmf.write_function(theta_f)
+    # # 将属于“hole cell”的所有顶点自由度置 0
+    # dofmap = V0_nodal.dofmap
+    # for cell_lid, pt in enumerate(mids_ref):
+    #     if tuple(np.round(pt, 8)) not in mid_set_hole:
+    #         mask_scalar.x.array[dofmap.cell_dofs(cell_lid)] = 0.0
+    # mask_scalar.x.scatter_forward()     # 同步幽灵自由度 (并行安全)
 
-    # # # 5. 缓存供 Sensitivity 使用
-    # opt["theta_vec"] = theta_vec
+    # # 2.2 扩展成 **vector nodal** mask，使长度 = 位移向量
+    # theta = Function(V_ref)
+
+    # vals = mask_scalar.x.array
+    # theta.x.array[0::2] = vals         # x-分量
+    # theta.x.array[1::2] = vals         # y-分量
+    # theta.x.scatter_forward()
+    # theta_vec = theta.vector.copy()
+    # opt["theta_vec"] = theta_vec    # 与位移 Vec 尺寸完全一致
+
+    # # 6) 投影u到与u_ref相同大小的函数空间
+    # V0 = FunctionSpace(mesh, ("Lagrange", 1))
+    # ux = Function(V0, name="ux")
+    # uy = Function(V0, name="uy")
+    # ux.x.array[:] = u_field.x.array[0::2]
+    # uy.x.array[:] = u_field.x.array[1::2]
+    # V0_ref = FunctionSpace(mesh_ref, ("Lagrange", 1))
+    # V0_hole = ux.function_space  # scalar Lagrange space on the perforated mesh
+
+    # coords_ref = V0_ref.tabulate_dof_coordinates()
+    # coords_hole = V0_hole.tabulate_dof_coordinates()
+
+    # ux_interp = Function(V0_ref, name="ux_hole_interp")
+    # uy_interp = Function(V0_ref, name="uy_hole_interp")
+
+    # # build look‑up tables  {rounded‑coord: value}
+    # key = lambda xy: (round(float(xy[0]), 8), round(float(xy[1]), 8))
+    # ux_map = {key(xy): val for xy, val in zip(coords_hole, ux.x.array)}
+    # uy_map = {key(xy): val for xy, val in zip(coords_hole, uy.x.array)}
+
+    # ux_vals = ux_interp.x.array  # local view (to be filled)
+    # uy_vals = uy_interp.x.array
+
+    # for i, xy in enumerate(coords_ref):
+    #     k = key(xy)
+    #     ux_vals[i] = ux_map.get(k, 0.0)
+    #     uy_vals[i] = uy_map.get(k, 0.0)
+
+    # u_interp = Function(V_ref, name="u_hole_interp_vec")
+    # vec_arr = u_interp.x.array
+    # vec_arr[0::2] = ux_vals
+    # vec_arr[1::2] = uy_vals
+    # u_interp.x.scatter_forward()
+
+    # opt["u_interp"] = u_interp
+
+    V0_ref = FunctionSpace(mesh_ref, ("Lagrange", 1))
+
+    ux_ref = Function(V0_ref, name="ux_ref")
+    uy_ref = Function(V0_ref, name="uy_ref")
+    ux_ref.x.array[:] = U_ref_vec.getArray()[0::2]
+    uy_ref.x.array[:] = U_ref_vec.getArray()[1::2]
+    ux_ref.x.scatter_forward()
+    uy_ref.x.scatter_forward()
+
+    # ---------------------------------------------------------------
+    # ❷ 创建“目标”函数空间：带孔网格上的 P¹ 向量场
+    # ---------------------------------------------------------------
+    V0_hole = FunctionSpace(mesh, ("Lagrange", 1))           # scalar
+
+    # ---------------------------------------------------------------
+    # ❸ 用坐标-字典把 (ux_ref, uy_ref) 复制到带孔顶点
+    # ---------------------------------------------------------------
+    coords_ref = V0_ref.tabulate_dof_coordinates()
+    coords_hole = V0_hole.tabulate_dof_coordinates()
+
+    key = lambda xy: (round(float(xy[0]), 8), round(float(xy[1]), 8))
+    ux_map = {key(xy): val for xy, val in zip(coords_ref, ux_ref.x.array)}
+    uy_map = {key(xy): val for xy, val in zip(coords_ref, uy_ref.x.array)}
+
+    # scalar fields on *hole* mesh
+    ux_ref_hole = Function(V0_hole, name="ux_ref_on_hole")
+    uy_ref_hole = Function(V0_hole, name="uy_ref_on_hole")
+
+    for i, xy in enumerate(coords_hole):
+        k = key(xy)
+        ux_ref_hole.x.array[i] = ux_map.get(k, 0.0)   # fill 0 if vertex not in ref mesh
+        uy_ref_hole.x.array[i] = uy_map.get(k, 0.0)
+
+    ux_ref_hole.x.scatter_forward()
+    uy_ref_hole.x.scatter_forward()
+
+    # ---------------------------------------------------------------
+    # ❹ 重新打包成向量 Function（与 u_field 同空间、同长度）
+    # ---------------------------------------------------------------
+    U_ref_hole = Function(V, name="U_ref_on_hole")
+    arr = U_ref_hole.x.array          # writable view
+    arr[0::2] = ux_ref_hole.x.array
+    arr[1::2] = uy_ref_hole.x.array
+    U_ref_hole.x.scatter_forward()
+
+    opt["U_ref_vec"] = U_ref_hole.vector.copy()
 
     # Define optimization-related variables
     opt["f_int"] = ufl.inner(D_matrix*eps_u_field, eps_v)*dx

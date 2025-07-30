@@ -11,9 +11,9 @@ class Sensitivity:
     def __init__(self, comm, opt, problem,
                  u_field, lambda_field, rho_phys, local_vf_phys):
         self.comm, self.problem = comm, problem
-        self.u, self.lam = u_field, lambda_field
-        self.theta_vec   = opt["theta_vec"]
-        self.Uref_vec    = opt["U_ref_vec"]
+        self.lam = lambda_field
+        self.u_field = u_field
+        self.Uref_vec = opt["U_ref_vec"]
 
         # Ju 对 ρ 的链式项  -λᵀ ∂K/∂ρ U
         self.dJdrho_form = form(ufl.adjoint(
@@ -36,9 +36,9 @@ class Sensitivity:
         All in PETSc.Vec operations, O(n_dofs).
         """
         # (1) r = θ ⊙ (U - Ū)
-        r = self.u.vector.copy()
+        r = self.u_field.vector.copy()
         r.axpy(-1.0, self.Uref_vec)      # r = U - Ū
-        r.pointwiseMult(r, self.theta_vec)
+        # r.pointwiseMult(r, self.theta_vec)
 
         # (2) compute numerator J2 = rᵀ r
         J2 = r.dot(r)
@@ -47,7 +47,7 @@ class Sensitivity:
         # Here we compute it on the fly once per evaluate(); 
         # for speed, you can cache R2 to opt and skip this every iter.
         temp = self.Uref_vec.copy()
-        temp.pointwiseMult(temp, self.theta_vec)   # temp = θ⊙Ū
+        # temp.pointwiseMult(temp, self.theta_vec)   # temp = θ⊙Ū
         # print(temp.array.max())
         R2 = temp.dot(temp)
 

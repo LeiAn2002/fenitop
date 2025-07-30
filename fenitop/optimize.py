@@ -24,7 +24,7 @@ from scipy import sparse as sparse
 from scipy.linalg import solve
 
 
-def optimality_criteria(rho, rho_min, rho_max, V, dCdrho, dVdrho, move=0.05):
+def optimality_criteria(rho, rho_min, rho_max, V, dCdrho, dVdrho, move=0.02):
     """Solution update scheme with optimality criteria (OC)."""
     lb, ub = 0.0, 1e6
     comm = MPI.COMM_WORLD

@@ -17,14 +17,13 @@ class Sensitivity_ksi:
                  ksi_phys_list, c_field_list, local_vf_phys):
 
         # MPI & FEM objects
-        self.comm       = problem.u.function_space.mesh.comm
-        self.problem    = problem
-        self.u_field    = u_field
+        self.comm = problem.u.function_space.mesh.comm
+        self.problem = problem
+        self.u_field = u_field
         self.lambda_fld = lambda_field
 
         # cached reference displacement & indicator θ
         self.Uref = opt["U_ref_vec"]    # PETSc.Vec
-        self.theta = opt["theta_vec"]   # same layout PETSc.Vec
 
         # adjoint forms for c_j
         self.dJdc_forms = [
@@ -42,7 +41,7 @@ class Sensitivity_ksi:
                                 hidden2_size=256,
                                 output_size=6).double()
         self.nn.load_state_dict(torch.load(
-            '/shared/VirtualGrowth/Fenitop/fenitop/fenitop/trained_model.pth',
+            '/shared/fenitop_for_cloak/fenitop/trained_model.pth',
             map_location='cpu'))
         self.nn.eval()
 
@@ -72,14 +71,14 @@ class Sensitivity_ksi:
         # 1) r = θ ⊙ (U - Ū)
         r = self.u_field.vector.copy()
         r.axpy(-1.0, self.Uref)           # r = U - Ū
-        r.pointwiseMult(r, self.theta)    # r = θ ⊙ (U-Ū)
+        # r.pointwiseMult(r, self.theta)    # r = θ ⊙ (U-Ū)
 
         # 2) numerator squared
         J2 = r.dot(r)                         # ∑ (r_i)²
 
         # 3) denominator squared = ||θ⊙Ū||²
         tmp = self.Uref.copy()
-        tmp.pointwiseMult(tmp, self.theta)  # tmp = θ ⊙ Ū
+        # tmp.pointwiseMult(tmp, self.theta)  # tmp = θ ⊙ Ū
         R2  = tmp.dot(tmp)                      # ∑ (θ_i Ū_i)²
 
         # 4) value Ju

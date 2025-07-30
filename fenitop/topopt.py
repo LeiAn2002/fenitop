@@ -46,10 +46,11 @@ def topopt(fem, opt):
     check_sens = False
     linear_problem, u_field, lambda_field, rho_field, rho_phys_field, ksi_field_list, ksi_phys_field_list, c_field_list, local_vf_field, local_vf_phys_field = form_fem(fem, opt)
     density_filter_rho = DensityFilter(comm, rho_field, rho_phys_field,
-                                   opt["filter_radius"], fem["petsc_options"])
+                                       opt["filter_radius"], fem["petsc_options"])
     heaviside_rho = Heaviside(rho_phys_field)
 
     # 注意，这里因为我犯懒，所以dVdvf写在了Sensitivity里，而dCdvf和dUdvf写在了Sensitivity_ksi里
+    # print(opt["theta_vec"].array.shape)
     sens_problem = Sensitivity(comm, opt, linear_problem, u_field, lambda_field, rho_phys_field, local_vf_phys_field)
     sens_problem_ksi_and_vf = Sensitivity_ksi(opt, linear_problem, u_field, lambda_field, ksi_phys_field_list, c_field_list, local_vf_phys_field)
     S_comm = Communicator(rho_phys_field.function_space, fem["mesh_serial"])
@@ -65,7 +66,7 @@ def topopt(fem, opt):
         # heaviside_ksi_list.append(Heaviside(ksi_phys_field_list[i]))
 
         # comm_ksi_list.append(Communicator(ksi_phys_field_list[i].function_space, fem["mesh_serial"]))
-    normal_ksi = Normalization(ksi_phys_field_list)
+    normal_ksi = Normalization(ksi_phys_field_list, opt)
 
     density_filter_vf = DensityFilter(comm, local_vf_field, local_vf_phys_field,
                                    opt["filter_radius"], fem["petsc_options"])
@@ -106,9 +107,13 @@ def topopt(fem, opt):
     ksi_ini_list[0][solid], ksi_ini_list[0][void] = 0.99, 0.99
     ksi_ini_list[1][solid], ksi_ini_list[1][void] = 0.005, 0.005
     ksi_ini_list[2][solid], ksi_ini_list[2][void] = 0.005, 0.005
+    ksi_ini_list[3][solid], ksi_ini_list[3][void] = 0.005, 0.005
+    ksi_ini_list[4][solid], ksi_ini_list[4][void] = 0.005, 0.005
     ksi_min_list[0][solid], ksi_min_list[0][void] = 0.99, 0.99
     ksi_max_list[1][solid], ksi_max_list[1][void] = 0.005, 0.005
     ksi_max_list[2][solid], ksi_max_list[2][void] = 0.005, 0.005
+    ksi_max_list[3][solid], ksi_max_list[3][void] = 0.005, 0.005
+    ksi_max_list[4][solid], ksi_max_list[4][void] = 0.005, 0.005
 
     # np.savetxt('array.txt', ksi_max_list[1], fmt='%.4f')
 
@@ -294,7 +299,7 @@ def topopt(fem, opt):
     save_xdmf(fem["mesh"], rho_phys_field, "/shared/fenitop_for_cloak/data_optimize/rho_field.xdmf")
 
     for i in range(block_types):
-        with XDMFFile(fem["mesh"].comm, f"/shared/fenitop_for_cloak/data/ksi_field_{i+1}.xdmf", "w") as xdmf:
+        with XDMFFile(fem["mesh"].comm, f"/shared/fenitop_for_cloak/data_optimize/ksi_field_{i+1}.xdmf", "w") as xdmf:
             xdmf.write_mesh(fem["mesh"])
             xdmf.write_function(ksi_phys_field_list[i])
 

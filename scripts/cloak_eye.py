@@ -116,7 +116,7 @@ fem = {  # FEA parameters
 }
 
 opt = {  # Topology optimization parameters
-    "max_iter": 300,
+    "max_iter": 1,
     "opt_tol": 1e-2,
     # "vol_frac": 0.9,
     # "solid_zone": lambda x: (
@@ -140,7 +140,7 @@ opt = {  # Topology optimization parameters
     "solid_zone_rho": lambda x: np.full(x.shape[1], True),
 
     "solid_zone": lambda x: np.logical_not(
-        inside_leaf(x, W=0.65*L, L=0.8*L, p=2.2)
+        inside_leaf(x, W=0.8*L, L=L, p=2.2)
     ),
     # "void_zone": lambda x: np.full(x.shape[1], False),
     # "solid_zone_rho": lambda x: np.full(x.shape[1], False),

@@ -2,4 +2,4 @@
 DATE=$(date +%Y-%m-%d)
 git add .
 git commit -m "daily_update $DATE"
-git push --force origin cloak
+git push origin cloak

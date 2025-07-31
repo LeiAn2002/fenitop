@@ -18,7 +18,7 @@ from dolfinx.fem import petsc
 
 # --------------------------- user parameters ---------------------------
 L = 20.0                # plate length  (mm)
-nel = 100                # element divisions for the reference square mesh
+nel = 200                # element divisions for the reference square mesh
 order = 1               # polynomial order of Lagrange elements
 E, nu = 2000, 0.34      # Young's modulus & Poisson's ratio of the solid
 
@@ -95,7 +95,7 @@ def solve_case(with_hole: bool):
     v_corner = mesh.locate_entities_boundary(
         domain,
         0,
-        lambda x: np.isclose(x[0], -L / 2, atol=tol)
+        lambda x: np.isclose(x[0], 0.0, atol=tol)
         & np.isclose(x[1], -L / 2, atol=tol),
     )
     bc_corner = fem.dirichletbc(

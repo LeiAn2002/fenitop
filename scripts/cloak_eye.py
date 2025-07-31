@@ -28,7 +28,7 @@ from fenitop.topopt import topopt
 from fenitop.utility import load_field_from_h5
 
 L = 20.0
-nel = 100
+nel = 200
 
 mesh_ref = create_rectangle(MPI.COMM_WORLD, [[-L / 2, -L / 2], [L / 2, L / 2]],
                             [nel, nel], CellType.quadrilateral)
@@ -116,7 +116,7 @@ fem = {  # FEA parameters
 }
 
 opt = {  # Topology optimization parameters
-    "max_iter": 1,
+    "max_iter": 300,
     "opt_tol": 1e-2,
     # "vol_frac": 0.9,
     # "solid_zone": lambda x: (
